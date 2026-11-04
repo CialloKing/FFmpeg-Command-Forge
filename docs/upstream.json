@@ -1,0 +1,69 @@
+{
+  "repository": "https://github.com/Lake1059/FFmpegFreeUI",
+  "revision": "9cff6bf2d9f8b0162f2e6dc76e539d13a208acf3",
+  "version": "6.2.43",
+  "sources": [
+    {
+      "path": "FFmpegFreeUI/功能/视频编码器数据库_v6.vb",
+      "sha256": "051b83bad3168b3513cae9ba9c0db1c0ee923a5b5d9ad85c04c0db7f45b51b12"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/音频编码器数据库_v6.vb",
+      "sha256": "d8d039d0317a07f27f58d147a4da86032c389efd762ec1219abb3a509d10d5ef"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设数据_v6.vb",
+      "sha256": "5902a4c826335b2936403a5a0d1a76297df817ff650fb567ae61d1c5ca0fd5a5"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/开发者内置预设_v6.vb",
+      "sha256": "b1217514c12c5859a1021ab7fdc0707ac6e56f7cbeabb8aa361bcb7b6511b00b"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设命令行核心_v6.vb",
+      "sha256": "788b23e6b07faf276080171e8f40fd30027d6e44318742434c25c0876a0aaf74"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设命令行滤镜图_v6.vb",
+      "sha256": "5126ab2d5087aabceec602376f651b61dfca6ff3d910c56db94887c04ec9aeab"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设滤镜排序_v6.vb",
+      "sha256": "2b674ddc3d1e180662e48259bf35703b508e86c04955d948d354f604cd1e2f7f"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设区段_画面效果字幕_v6.vb",
+      "sha256": "27e7c0fd9ccb6e77036a100d68bff4e1c8980f4c3b71fa164ad5c1374deb1bde"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设区段_剪辑自定义_v6.vb",
+      "sha256": "946ab74b7935393d8d7f99bf0cb6992fc4e2168bc146598d4536e32881f944d0"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设区段_画面帧_v6.vb",
+      "sha256": "a01e3e868486d87dc121d4979430f6f8c419099a3a70d2a2656b8ce8196a710c",
+      "start": 317
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设区段_质量色彩音频_v6.vb",
+      "sha256": "6b0d1d3f52ca6d1cfa8fece95e2c081dde6587778434f449433c87603ade73e1",
+      "start": 127
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设区段_高级流控制_v6.vb",
+      "sha256": "cb60f57eed79bb932f6c5e8b96e05964dffb1bee90c400923e9d5ef3a47a1244",
+      "start": 210
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设区段_输出解码编码_v6.vb",
+      "sha256": "dca827f90c746c010efc81efb4bdb7a131856081afdbb1ef9dc6f586a751075c",
+      "start": 250
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设存储_v6.vb",
+      "sha256": "ca0305d000958c6660f5eb702d6e48a223ad411fb7450a1d8b0c333af6348d97",
+      "start": 96,
+      "end": 113
+    }
+  ]
+}
