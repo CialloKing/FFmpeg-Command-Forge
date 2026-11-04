@@ -2,6 +2,12 @@
 
 离线 FFmpeg 命令生成器，兼容 FFmpegFreeUI v6 预设。界面面向进阶用户，支持参数搜索、滤镜排序、流映射、批量任务和辅助脚本。
 
+## 在线使用
+
+访问 [FFmpeg Command Forge 在线版](https://cialloking.com/FFmpeg-Command-Forge/)。网页在浏览器中生成命令，FFmpeg 仍需在本机终端执行。
+
+推送到 `main` 后，GitHub Actions 自动执行类型检查和单文件构建，将 `dist/index.html` 发布到 GitHub Pages。首次配置或迁移仓库时，在 Settings → Pages 中将 Source 设为 GitHub Actions；也可在 Actions 中手动运行“部署 GitHub Pages”。
+
 ## 直接使用
 
 双击根目录的 **FFmpeg Command Forge.html**。该文件已内联全部代码、样式、编码器数据、内置预设和 ZIP 功能；使用时不需要 Node.js、.NET、服务器或网络。执行命令的电脑需要自行安装 FFmpeg，依赖媒体信息时还需要 ffprobe。
