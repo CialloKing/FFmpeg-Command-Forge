@@ -12,7 +12,7 @@ function button(text: string, action: () => void, cls = ''): HTMLButtonElement {
 function row(...nodes: (Node | string)[]): HTMLDivElement { const r = el('div', 'row'); r.append(...nodes); return r; }
 const labels: Record<string, string> = { powershell: 'PowerShell 7.3+', powershell5: 'Windows PowerShell 5.1', cmd: 'CMD（延迟展开关闭）', bash: 'Bash', zsh: 'Zsh' };
 const cacheKey = 'ffmpeg-command-forge.workspace.v1', libraryKey = 'ffmpeg-command-forge.presets.v1';
-let doc: PresetDocument = importPreset(), context: ExecutionContext = defaultContext(), selected = '任务与环境', query = '', previewTab = 'script', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
+let doc: PresetDocument = importPreset(), context: ExecutionContext = defaultContext(), selected = '任务与环境', query = '', previewTab = 'commands', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
 let theme = 'dark';
 let library: { name: string; preset: Preset }[] = [];
 const app = $('#app');
@@ -228,7 +228,7 @@ function renderOutput(): void {
   $('#task-summary').textContent = `${plan.tasks.length} 个输入 · ${plan.tasks.reduce((n, t) => n + t.stages.length, 0)} 个执行阶段 · ${labels[context.shell]}`;
   $('#status-title').textContent = incompatible ? '不兼容' : ready ? '命令已就绪' : '待补充信息'; $('#status-caption').textContent = incompatible ? '请处理以下兼容问题' : ready ? '复制完整脚本到所选终端执行' : '完成路径、资源或媒体信息确认'; $('#status-icon').textContent = ready ? '✓' : incompatible ? '×' : '◌'; $('#status-icon').style.color = ready ? 'var(--accent)' : incompatible ? 'var(--error)' : 'var(--orange)';
   const tabs = $('#preview-tabs'); tabs.replaceChildren();
-  for (const [id, name] of [['script', '完整脚本'], ['commands', '命令'], ['stages', '阶段'], ['graph', '滤镜图'], ['args', '参数']]) { tabs.append(button(name, () => { previewTab = id; renderOutput(); }, 'tab' + (previewTab === id ? ' active' : ''))); }
+  for (const [id, name] of [['commands', '命令'], ['stages', '阶段'], ['graph', '滤镜图'], ['args', '参数'], ['script', '完整脚本']]) { tabs.append(button(name, () => { previewTab = id; renderOutput(); }, 'tab' + (previewTab === id ? ' active' : ''))); }
   const previews: Record<string, string> = { script: rendered.script, commands: rendered.commands, stages: rendered.stages, graph: plan.tasks.flatMap(t => t.stages.filter(s => s.graph).map(s => `# ${s.name}\n${s.graph}`)).join('\n\n') || '此任务未使用复杂滤镜图。线性滤镜可在参数视图查看。', args: JSON.stringify(plan.tasks.map(t => ({ 输入: t.input, 输出: t.output, 阶段: t.stages.map(s => ({ 名称: s.name, 程序: s.executable, 参数: s.args, 映射: s.maps })) })), null, 2) };
   $('#command').textContent = previews[previewTab]; $('#terminal-title').textContent = (ready ? '' : 'PREVIEW · ') + labels[context.shell].toUpperCase();
   for (const id of ['copy-final', 'download-script', 'download-zip']) { $<HTMLButtonElement>('#' + id).disabled = !ready; }
