@@ -40,9 +40,11 @@ for (const [relative, start, end] of sources) {
   await writeFile(path.join('tools/oracle/generated', path.basename(relative)), generated.replace(/^Imports LakeUI\r?\n/gm, ''), 'utf8');
 }
 const helpersSource = await readFile(path.join(root, base + '预设面板总览_兼容性_v6.vb'), 'utf8');
+manifest.sources.push({ path: base + '预设面板总览_兼容性_v6.vb', sha256: createHash('sha256').update(helpersSource).digest('hex') });
 const helpers = [...helpersSource.matchAll(/^    (?:Private|Public) Shared Function (?:已设置|字幕颜色已设置|限制颜色通道|抽帧参数已设置|超分单片有设置)\([\s\S]*?^    End Function/gm)].map(m => m[0]).join('\n');
 await writeFile('tools/oracle/generated/Helpers.vb', 'Partial Public Class 预设管理_v6\n' + helpers + '\nEnd Class\n');
 const moduleSource = await readFile(path.join(root, 'FFmpegFreeUI/功能/Module1.vb'), 'utf8');
+manifest.sources.push({ path: 'FFmpegFreeUI/功能/Module1.vb', sha256: createHash('sha256').update(moduleSource).digest('hex') });
 const pathHelper = moduleSource.match(/^    Public Function 将路径转换为FFmpeg滤镜接受的格式\([\s\S]*?^    End Function/m)[0];
 await writeFile('tools/oracle/generated/Paths.vb', 'Module OriginalPaths\n' + pathHelper + '\nEnd Module\n');
 await copyFile(path.join(root, 'LICENSE.txt'), 'docs/FFmpegFreeUI-LICENSE.txt');

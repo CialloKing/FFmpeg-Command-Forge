@@ -64,6 +64,14 @@
       "sha256": "ca0305d000958c6660f5eb702d6e48a223ad411fb7450a1d8b0c333af6348d97",
       "start": 96,
       "end": 113
+    },
+    {
+      "path": "FFmpegFreeUI/功能/预设系统/预设面板总览_兼容性_v6.vb",
+      "sha256": "df73d64acaad1ea35751098d01d052553427773b10826de611ce98444d8c8879"
+    },
+    {
+      "path": "FFmpegFreeUI/功能/Module1.vb",
+      "sha256": "de963f045e7ea479303e06983043e786d4aaa0b73882c9b926a16d855b313118"
     }
   ]
 }

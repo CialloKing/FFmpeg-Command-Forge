@@ -78,7 +78,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext):
   }
   if (a.视频参数_编码器_具体编码 && !/^[a-z0-9_.-]+$/i.test(a.视频参数_编码器_具体编码) && !Object.hasOwn(data.video, a.视频参数_编码器_具体编码)) { problem('error', '未知视频编码器名称含空格或特殊字符，请将附加选项填写到自定义视频参数中'); }
   // Map only explicitly declared resource paths. The original imported JSON remains untouched.
-  const mapResources = (obj: Preset) => { for (const [k, v] of Object.entries(obj)) { if (typeof v === 'string' && /文件路径|文件夹|脚本文件|输出位置/.test(k) && v) { obj[k] = mapPath(v, c); if (/^(?:[A-Za-z]:[\\/]|[\\/])/.test(v) && !c.confirmedPaths.includes(v) && obj[k] === v) { unconfirmed.push({ path: v, field: k }); } } else if (v && typeof v === 'object') { if (Array.isArray(v)) { v.filter(x => x && typeof x === 'object').forEach(mapResources); } else { mapResources(v); } } } };
+  const mapResources = (obj: Preset) => { for (const [k, v] of Object.entries(obj)) { if (typeof v === 'string' && /文件路径|文件夹|脚本文件|输出位置/.test(k) && v) { obj[k] = mapPath(v, c); if (/^(?:[A-Za-z]:[\\/]|[\\/])/.test(v) && (!c.confirmedPaths.includes(v) || c.platform !== 'windows' && /^[A-Za-z]:/.test(v)) && obj[k] === v) { unconfirmed.push({ path: v, field: k }); } } else if (v && typeof v === 'object') { if (Array.isArray(v)) { v.filter(x => x && typeof x === 'object').forEach(mapResources); } else { mapResources(v); } } } };
   mapResources(a);
   for (const [key, content] of Object.entries(context.resources)) {
     const mapped = mapPath(key, c);
@@ -120,6 +120,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext):
     const custom = a.自定义参数_完全自己写.trim();
     if (!custom && [5, 6].includes(a.剪辑区间_方法) && (probe?.format?.duration === undefined || probe?.format?.duration === null || probe?.format?.duration === '' || !Number.isFinite(Number(probe?.format?.duration)))) { problem('missing', `${filename(input)}：此剪辑方式需要导入 ffprobe 时长信息`); }
     let external = task.subtitle ? mapPath(task.subtitle, c) : undefined;
+    if (!custom && external && c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(external)) { problem('missing', '外部字幕仍是 Windows 路径，请显式映射到目标系统'); }
     if (!custom && a.视频参数_烧录字幕_滤镜选择 && !a.视频参数_烧录字幕_自己写滤镜取代所有设置) {
       if (a.视频参数_烧录字幕_字幕来源是外部文件 === 1 && !external) { problem('missing', `${filename(input)}：请选择实际字幕路径；候选 ${subtitleCandidates(a, input).join('、')}`); }
       if (a.视频参数_烧录字幕_字幕来源是外部文件 === 2 && (!probe || !a.视频参数_烧录字幕_指定内嵌的流)) { problem('missing', `${filename(input)}：内嵌字幕需要 ffprobe 信息和字幕流编号`); }
@@ -160,13 +161,14 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext):
         graph = g.graph; maps = g.maps;
       }
       args = args.map(p => mapPath(p, c));
+      if (c.platform !== 'windows' && args.some(p => /^[A-Za-z]:[\\/]/.test(p))) { problem('missing', '命令中的资源仍有 Windows 路径，请显式映射到目标系统'); }
       if (args.some(p => /<(?:输入文件|输出文件|媒体总时长|InputFile[^>]*|OutputFile|字幕文件[^>]*)>/.test(p))) { problem('missing', `${filename(input)}：命令仍有未解析的占位符`); }
       if (args.some(p => p.includes('\0')) || c.ffmpeg.includes('\0')) { problem('error', '参数和程序路径不能包含 NUL 字符'); }
       stages.push({ name: phase === 'pass1' ? '两遍编码 · 第一遍' : phase === 'pass2' ? '两遍编码 · 第二遍' : '执行转码', kind: phase as CommandStage['kind'], executable: c.ffmpeg, args, graph, maps, taskId: task.id });
     }
     tasks.push({ id: task.id, input, output, directory: dirname(output), stages, assets, preserve: { creation: a.输出命名_保留创建时间, modification: a.输出命名_保留修改时间, access: a.输出命名_保留访问时间 }, naming: task.output ? 0 : a.输出_自动命名选项, candidateStem, extension: ext ? '.' + ext : '' });
   }
-  for (const item of unconfirmed) { if (tasks.some(t => t.stages.some(s => s.args.some(arg => arg.includes(item.path) || arg.includes(filterPath(item.path)))))) { problem('missing', `请确认预设路径用于当前环境：${item.path}`, item.field); } }
+  for (const item of unconfirmed) { if (tasks.some(t => t.stages.some(s => s.args.some(arg => arg.includes(item.path) || arg.includes(filterPath(item.path)) || arg.includes(filterPath(item.path).replaceAll("'", "\\'")))))) { problem('missing', c.platform !== 'windows' && /^[A-Za-z]:/.test(item.path) ? `Windows 资源路径需要显式映射：${item.path}` : `请确认预设路径用于当前环境：${item.path}`, item.field); } }
   const uniqueIssues = [...new Map(issues.map(i => [i.level + i.message, i])).values()];
   return { status: uniqueIssues.some(i => i.level === 'error') ? 'incompatible' : uniqueIssues.some(i => i.level === 'missing') ? 'missing' : 'ready', issues: uniqueIssues, tasks, probes, context: c, preset: a };
 }

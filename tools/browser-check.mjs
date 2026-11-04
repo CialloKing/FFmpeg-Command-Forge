@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { unzipSync, strFromU8 } from 'fflate';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
@@ -32,6 +33,12 @@ await page.waitForFunction(() => !document.querySelector('#copy-final').disabled
 assert.match(await page.locator('#command').innerText(), /libx264/);
 await page.screenshot({ path: '.cache/ui-desktop.png', fullPage: true });
 const download = page.waitForEvent('download'); await page.getByRole('button', { name: '导出预设', exact: true }).click(); const file = await download; await file.saveAs('.cache/browser-preset.json');
+const exported = JSON.parse(await readFile('.cache/browser-preset.json', 'utf8')); assert.equal(exported.音频参数_编码器_代号, 'aac.native');
+const chooser = page.waitForEvent('filechooser'); await page.getByRole('button', { name: '导入预设', exact: true }).click(); await (await chooser).setFiles(path.resolve('.cache/browser-preset.json')); await page.waitForFunction(() => !document.querySelector('#copy-final').disabled);
+const zipDownload = page.waitForEvent('download'); await page.getByRole('button', { name: '下载任务包', exact: true }).click(); await (await zipDownload).saveAs('.cache/browser-task.zip');
+const zip = unzipSync(await readFile('.cache/browser-task.zip')); assert.deepEqual(JSON.parse(strFromU8(zip['preset-v6.json'])), exported); assert.match(strFromU8(zip['forge-task.ps1']), /libx264/);
+await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.reject(new Error('blocked')) } }));
+await page.getByRole('button', { name: '复制最终脚本 ↗' }).click(); assert.match(await page.evaluate(() => getSelection().toString()), /libx264/);
 await page.getByRole('button', { name: '画面', exact: true }).click();
 await page.getByRole('textbox', { name: '搜索全部参数' }).fill('-pix_fmt');
 await page.getByLabel('色彩管理 / 像素格式', { exact: true }).waitFor();
@@ -42,10 +49,19 @@ await page.getByRole('button', { name: '任务与环境', exact: true }).click()
 await page.screenshot({ path: '.cache/ui-mobile.png', fullPage: true });
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, '移动端不应横向溢出');
 await page.reload(); await page.getByLabel('输入文件 1 路径').waitFor(); assert.equal(await page.getByLabel('输入文件 1 路径').inputValue(), 'D:\\Media\\演示素材.mp4');
+const future = { 预设文件版本: 6, 滤镜排序系统: [
+  { 实例ID: 'one', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'hflip', 未知扩展: { keep: true } },
+  { 实例ID: 'two', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'vflip' }
+] };
+const futureChooser = page.waitForEvent('filechooser'); await page.getByRole('button', { name: '导入预设', exact: true }).click(); await (await futureChooser).setFiles({ name: 'future.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(future)) });
+await page.getByRole('button', { name: '画面', exact: true }).click(); await page.locator('.filter-item').first().getByRole('button', { name: '↓' }).click();
+const futureDownload = page.waitForEvent('download'); await page.getByRole('button', { name: '导出预设', exact: true }).click(); await (await futureDownload).saveAs('.cache/browser-future.json');
+const futureExport = JSON.parse(await readFile('.cache/browser-future.json', 'utf8')); assert.deepEqual(futureExport.滤镜排序系统.find(x => x.实例ID === 'one').未知扩展, { keep: true });
+await page.waitForFunction(() => document.querySelector('#status-title').textContent === '不兼容'); assert.ok(await page.getByRole('button', { name: '复制最终脚本 ↗' }).isDisabled());
 assert.deepEqual(errors, []); assert.deepEqual(network, []);
 await context.close();
 const blocked = await browser.newContext();
 await blocked.addInitScript(() => { Object.defineProperty(window, 'localStorage', { get() { throw new Error('blocked'); } }); });
 const blockedPage = await blocked.newPage(); await blockedPage.goto(pathToFileURL(path.resolve('FFmpeg Command Forge.html')).href); await blockedPage.getByRole('heading', { name: '从你的素材开始' }).waitFor(); await blocked.close();
 await browser.close();
-console.log('Edge 本地文件离线验收通过：参数编辑、预设导出、全局搜索、明暗主题、移动布局、工作区恢复、禁用存储；0 外部请求，0 页面错误。');
+console.log('Edge 本地文件离线验收通过：参数编辑、预设往返、ZIP任务包、复制降级、滤镜排序与未知字段保留、全局搜索、明暗主题、移动布局、工作区恢复、禁用存储；0 外部请求，0 页面错误。');

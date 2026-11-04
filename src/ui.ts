@@ -78,9 +78,17 @@ function textInput(value: string, onChange: (v: string) => void, placeholder = '
 function selectInput(options: [string, string][], value: string, onChange: (v: string) => void): HTMLSelectElement { const select = el('select'); for (const [v, name] of options) { const o = el('option', '', name); o.value = v; select.append(o); } select.value = value; select.onchange = () => onChange(select.value); return select; }
 function heading(title: string, number: string): HTMLDivElement { const h = el('div', 'section-line'); h.append(el('span', '', number), el('h3', '', title)); return h; }
 const parameterHints: Record<string, string> = { 视频参数_编码器_具体编码: '-c:v', 视频参数_编码器_编码预设: '-preset', 视频参数_帧速率: '-r', 视频参数_帧速率模式: '-fps_mode', 视频参数_分辨率: 'scale / scale_cuda', 视频参数_分辨率_裁剪滤镜参数: 'crop', 视频参数_比特率_基础: '-b:v', 视频参数_比特率_最低值: '-minrate', 视频参数_比特率_最高值: '-maxrate', 视频参数_比特率_缓冲区: '-bufsize', 视频参数_色彩管理_像素格式: '-pix_fmt', 音频参数_编码器_代号: '-c:a · 使用 3FUI 私有 ID', 音频参数_比特率: '-b:a', 音频参数_采样率: '-ar', 音频参数_位深度: '-sample_fmt', 解码参数_解码器: '-hwaccel', 解码参数_解码数据格式: '-hwaccel_output_format', 剪辑区间_入点: '-ss / trim · 建议使用 00:00:10 或 10.0', 剪辑区间_出点: '-to / trim · 建议使用 00:00:20 或 20.0', 输出_自动命名选项: '自动命名与冲突处理包含在完整脚本中', 自定义参数_完全自己写: '覆盖自动生成的 FFmpeg 参数；按原版 Windows 参数语法解析，不执行 Shell 代码' };
+const familyHints: [string, string][] = [
+  ['视频参数_编码器_配置文件', '-profile'], ['视频参数_编码器_场景优化', '-tune'], ['视频参数_编码器_图片', '-q:v'], ['视频参数_编码器_gpu', '-gpu'], ['视频参数_编码器_threads', '-threads'], ['解码参数_CPU', '-threads'],
+  ['视频参数_分辨率自动', 'scale / scale_cuda · w / h / flags / interp_algo'], ['视频参数_抽帧', 'mpdecimate · max / keep / hi / lo / frac'], ['视频参数_插帧', 'minterpolate · fps / mi_mode / me_mode / me / mc_mode'], ['视频参数_NV_FRUC', 'fruc_vulkan · fps / perf / grid'], ['视频参数_动态模糊', 'tmix · frames / weights / scale / planes'],
+  ['视频参数_超分', 'libplacebo · upscaler / downscaler / custom_shader_path'], ['视频参数_降噪', 'hqdn3d / nlmeans / atadenoise / bm3d / bilateral_cuda'], ['视频参数_锐化', 'cas / unsharp'], ['视频参数_胶片颗粒', 'noise / apply_filmgrain'], ['视频参数_平滑断层', 'deband / gradfun / libplacebo'], ['视频参数_处理扫描', 'yadif / bwdif / tinterlace / fieldmatch / pullup'], ['视频参数_画面翻转', 'transpose / hflip / vflip'],
+  ['视频参数_烧录字幕', 'subtitles / ass · filename / stream_index / fontsdir / force_style'], ['视频参数_色彩管理', 'colorspace / zscale / libplacebo / eq · -colorspace / -color_primaries / -color_trc / -color_range'], ['视频参数_质量控制', '-crf / -cq / -qp / -rc'], ['视频参数_比特率_控制', '-rc / -pass / -passlogfile'], ['音频参数_质量', '-q:a / -compression_level'], ['音频参数_声道', 'aformat · channel_layouts'], ['音频参数_响度', 'loudnorm · I / LRA / TP'],
+  ['流控制_', '-map / -c:s / -map_metadata / -map_chapters'], ['元数据_', '-metadata'], ['章节_', '-f ffmetadata / -map_chapters'], ['附件_', '-attach / -metadata:s:t / -disposition'], ['自定义参数_视频滤镜', '-vf / -filter:v / -filter_complex'], ['自定义参数_音频滤镜', '-af / -filter:a / -filter_complex']
+];
+const fieldHint = (key: string) => parameterHints[key] || familyHints.find(([prefix]) => key.startsWith(prefix))?.[1] || '';
 function parameterField(key: string, spec: Schema, value: any, path: (string | number)[]): HTMLElement {
   const label = key.replace(/^(视频参数_|音频参数_|解码参数_)/, '').replaceAll('_', ' / ');
-  const hint = path.length === 1 ? parameterHints[key] || key : '';
+  const hint = path.length === 1 ? fieldHint(key) || key : '';
   if (spec.kind === 'object' || spec.kind === 'array') {
     const details = el('details', 'nested'); const summary = el('summary', '', label + (spec.kind === 'array' ? ` · ${(value || []).length} 项` : '')); details.append(summary);
     if (spec.kind === 'object') {
@@ -206,7 +214,7 @@ function renderEditor(): void {
 }
 function renderParameterList(): void {
   const body = $('#editor-content'); body.replaceChildren(); const stack = el('div', 'stack');
-  const keys = Object.keys(schema.fields!).filter(k => query ? `${k} ${parameterHints[k] || ''} ${groupFor(k)}`.toLowerCase().includes(query.toLowerCase()) : groupFor(k) === selected);
+  const keys = Object.keys(schema.fields!).filter(k => query ? `${k} ${fieldHint(k)} ${groupFor(k)} ${JSON.stringify(doc.raw[k] ?? '')}`.toLowerCase().includes(query.toLowerCase()) : groupFor(k) === selected);
   if (!query && selected === '画面') { stack.append(filterOrder()); }
   const card = el('div', 'card parameter-fields');
   for (const key of keys) { card.append(parameterField(key, schema.fields![key], doc.raw[key] ?? data.defaults[key] ?? blankValue(schema.fields![key]), [key])); }
