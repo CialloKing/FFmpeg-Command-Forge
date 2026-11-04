@@ -6,15 +6,15 @@ import path from 'node:path';
 import { renderCommand, renderPlan, downloadableScript } from '../src/render';
 import { defaultContext } from '../src/plan';
 import type { CommandPlan, CommandStage, Shell } from '../src/types';
+import { pwsh, gitBash } from './runtime';
 
 const values = ['', '中文 path', 'a"b', "a'b", 'tail\\', '\\\\server\\path\\', 'a\\\\"b', '$x', '&|<>()^', '%FCF_TEST_VAR%', '!FCF_TEST_VAR!', 'prefix "quoted" ending\\'];
 const oracle = path.resolve('tools/oracle/bin/Debug/net10.0/Oracle.exe');
-const ps7 = 'C:/Users/Admin/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/pwsh.exe';
 function execute(script: string, shell: Shell, file = false) {
   const options = { encoding: 'utf8' as const, timeout: 20000, env: { ...process.env, FCF_TEST_VAR: 'MUST_NOT_EXPAND', MSYS2_ARG_CONV_EXCL: '*', MSYS_NO_PATHCONV: '1' } };
   if (shell === 'cmd') { return spawnSync('cmd.exe', ['/d', '/v:off', '/s', '/c', '"' + script + '"'], { ...options, windowsVerbatimArguments: true }); }
-  if (shell === 'bash') { return spawnSync('D:/mysoft/Installer/Git/bin/bash.exe', ['-c', script], options); }
-  return spawnSync(shell === 'powershell' ? ps7 : 'powershell.exe', ['-NoProfile', file ? '-File' : '-Command', script], options);
+  if (shell === 'bash') { return spawnSync(gitBash(), ['-c', script], options); }
+  return spawnSync(shell === 'powershell' ? pwsh : 'powershell.exe', ['-NoProfile', file ? '-File' : '-Command', script], options);
 }
 function parsed(stdout: string, label = ''): any { const start = stdout.search(/\[\s*\r?\n/); assert.ok(start >= 0, label + ' 未接收到 JSON: ' + JSON.stringify(stdout)); return JSON.parse(stdout.slice(start)); }
 test('真实终端传递复杂参数到 Windows FFmpeg 同规则的原生探针', { skip: process.platform !== 'win32' }, () => {

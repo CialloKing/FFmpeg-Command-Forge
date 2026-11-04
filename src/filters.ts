@@ -38,10 +38,11 @@ function subtitle(a: Preset, input: string, output: string, external?: string): 
   push('FontName', v('基本样式_名称')); push('FontSize', v('基本样式_大小'));
   for (const [name, key] of [['Bold', '粗体'], ['Italic', '斜体'], ['Underline', '下划线'], ['StrikeOut', '删除线']]) { if (v('基本样式_' + key)) { push(name, -1); } }
   if (v('边框样式')) { push('BorderStyle', v('边框样式') === 1 ? 1 : 3); }
-  for (const [name, key] of [['Outline', '描边宽度'], ['Shadow', '阴影距离'], ['Alignment', '对齐方位'], ['MarginV', '垂直边距'], ['MarginL', '左边距'], ['MarginR', '右边距'], ['Spacing', '字距'], ['LineSpacing', '行距']]) { push(name, v(key)); }
+  for (const [name, key] of [['Outline', '描边宽度'], ['Shadow', '阴影距离']]) { push(name, v(key)); }
   for (const [name, key] of [['PrimaryColour', '主要颜色'], ['SecondaryColour', '次要颜色'], ['OutlineColour', '描边颜色'], ['BackColour', '背景颜色']]) {
     const c = v(key); if (c && (c.已设置 || c.A !== 255 || c.R !== 0 || c.G !== 0 || c.B !== 0)) { push(name, '&H' + ['A', 'B', 'G', 'R'].map(k => Math.max(0, Math.min(255, c[k])).toString(16).padStart(2, '0').toUpperCase()).join('')); }
   }
+  for (const [name, key] of [['Alignment', '对齐方位'], ['MarginV', '垂直边距'], ['MarginL', '左边距'], ['MarginR', '右边距'], ['Spacing', '字距'], ['LineSpacing', '行距']]) { push(name, v(key)); }
   if (v('补充样式')) { style.push(v('补充样式')); }
   if (style.length) { opts.push(['force_style', `'${style.join(',').replaceAll("'", "\\'")}'`]); }
   const name = v('滤镜选择') === 2 && !inner && !style.length && ['.ass', '.ssa'].includes(extension(file).toLowerCase()) ? 'ass' : 'subtitles';

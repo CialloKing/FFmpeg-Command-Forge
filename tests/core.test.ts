@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { data, exportPreset, importPreset, patchPreset, schema } from '../src/preset';
 import { buildPlan, defaultContext } from '../src/plan';
 import { parseArguments, windowsQuote } from '../src/arguments';
+import { seconds } from '../src/paths';
 
 test('预设往返保留原始嵌套数据，未知内容阻断执行', async () => {
   const raw = { 预设文件版本: 6, 视频参数_比特率_控制方式: 3, 自定义扩展: { future: 'keep' }, 元数据_要写入的信息: [{ 字段: 'title', 值: '中文', 扩展: 'keep too' }] };
@@ -28,9 +29,21 @@ test('原版参数与 TypeScript 执行计划保持一致', async () => {
     { name: 'two pass', preset: { 视频参数_编码器_具体编码: 'libx264', 视频参数_比特率_控制方式: 'TPE', 视频参数_比特率_基础: '400k', 音频参数_编码器_代号: 'aac.native' } },
     { name: 'precise seek', preset: { 剪辑区间_方法: '精剪空降解码', 剪辑区间_入点: '00:00:10', 剪辑区间_出点: '00:00:12', 剪辑区间_向前解码多久秒: '2.0' } },
     { name: 'trim', preset: { 剪辑区间_方法: 'Trim滤镜', 剪辑区间_入点: '00:00:01', 剪辑区间_出点: '00:00:02', 音频参数_编码器_代号: 'aac.native' } },
+    { name: 'TimeSpan compatibility', preset: { 剪辑区间_方法: 'Trim滤镜', 剪辑区间_入点: '1:2:.3', 剪辑区间_出点: '1:2:03.0001234567' } },
     { name: 'remove middle', duration: '30.0', preset: { 剪辑区间_方法: '剔除中间', 剪辑区间_入点: '00:00:01', 剪辑区间_出点: '00:00:02', 音频参数_编码器_代号: 'aac.native' } },
     { name: 'full custom', preset: { 自定义参数_完全自己写: '-i "<InputFile>" -metadata title="a & b" "<OutputFile>"' } }
   ];
+  for (const key of ['视频参数_降噪_方式', '视频参数_锐化_方式', '视频参数_胶片颗粒_方式', '视频参数_平滑断层_方式', '视频参数_处理扫描方式', '视频参数_画面翻转_角度翻转', '视频参数_画面翻转_镜像翻转']) {
+    for (const [name, n] of Object.entries(schema.fields![key].values!)) { if (n) { cases.push({ name: key + '/' + name, preset: { [key]: name } }); } }
+  }
+  cases.push(
+    { name: 'subtitle styling', preset: { 视频参数_烧录字幕_滤镜选择: 'ass', 视频参数_烧录字幕_字幕来源是外部文件: '内嵌的流', 视频参数_烧录字幕_指定内嵌的流: '0', 视频参数_烧录字幕_基本样式_名称: 'Test Font', 视频参数_烧录字幕_基本样式_粗体: true, 视频参数_烧录字幕_主要颜色: { 已设置: true, R: 240 }, 视频参数_烧录字幕_对齐方位: '底部居中', 视频参数_烧录字幕_补充样式: 'Outline=2' } },
+    { name: 'color conversion', preset: { 视频参数_色彩管理_滤镜选择: 'zscale', 视频参数_色彩管理_处理方式: '写入元数据并转换', 视频参数_色彩管理_矩阵系数: 'bt709', 视频参数_色彩管理_色域: 'bt709', 视频参数_色彩管理_范围: 'tv 有限', 视频参数_色彩管理_像素格式预先转换: 'yuv420p', 视频参数_色彩管理_启用调整亮度: true, 视频参数_色彩管理_亮度: '0.1' } },
+    { name: 'chapters attachments', preset: { 章节_来源: '文本文档', 章节_文件路径: 'D:\\chapters.txt', 流控制_附件选项: '保留附件', 附件_要写入的附件: [{ 类型: 'MP4封面图', 文件路径: 'D:\\cover.png' }, { 类型: '字体文件', 文件路径: 'D:\\font.ttf' }] } },
+    { name: 'cuda interpolate superres', preset: { 视频参数_分辨率自动计算_缩放滤镜: 'scale_cuda', 视频参数_分辨率自动计算_宽度: '1280', 视频参数_分辨率自动计算_缩放算法: 'lanczos', 视频参数_插帧_目标帧率: '60', 视频参数_插帧_运动估计算法: '基于 Hexagon', 视频参数_超分_滤镜叠加策略组: [{ 目标宽度: '1920', 着色器文件路径: 'D:\\shaders\\test.glsl' }] } }
+  );
+  for (const name of Object.keys(data.video)) { cases.push({ name: 'video catalog/' + name, preset: { 视频参数_编码器_具体编码: name, 视频参数_编码器_编码预设: 'fast', 视频参数_编码器_配置文件: 'main', 视频参数_编码器_场景优化: 'film', 视频参数_编码器_图片编码器质量值: '2' } }); }
+  for (const audio of data.audio) { cases.push({ name: 'audio catalog/' + audio.私有ID, preset: { 音频参数_编码器_代号: audio.私有ID, 音频参数_质量参数名: 'q:a', 音频参数_质量值: '2' } }); }
   const input = 'D:\\素材\\视频 test.mp4', output = 'D:\\输出\\result.mkv';
   const requests = cases.map(x => ({ preset: x.preset, input, output, duration: x.duration || '' }));
   const oracle = spawnSync('dotnet', ['tools/oracle/bin/Debug/net10.0/Oracle.dll'], { input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', maxBuffer: 8e6 });
@@ -43,6 +56,13 @@ test('原版参数与 TypeScript 执行计划保持一致', async () => {
     assert.equal(plan.tasks[0].stages.length, results[i].length, cases[i].name);
     results[i].forEach((r: any, j: number) => { assert.deepEqual(plan.tasks[0].stages[j].args, parseArguments(r.命令行), cases[i].name); assert.equal(plan.tasks[0].stages[j].graph, r.滤镜图, cases[i].name); });
   }
+});
+
+test('TimeSpan 边界与原版 .NET 10 行为一致', () => {
+  const values = ['1', '+1', '10.0', '1.2', '1:2:.3', '1:2:03.0001234567', '1:2:3.12345678', '1.02:03', '1:02:03:04', '24:00', '25:00:00', '00:60', '1.25:00:00', '-1:2:3.5', '1:2:3.00000001', '1:2:3.00012345678'];
+  const result = spawnSync('dotnet', ['tools/oracle/bin/Debug/net10.0/Oracle.dll', '--times', ...values], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  for (const item of JSON.parse(result.stdout)) { const fallback = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(item.text) ? Number(item.text) : undefined; assert.equal(seconds(item.text), item.ok ? item.seconds : fallback, item.text); }
 });
 
 test('Windows 参数引用往返与原生 CommandLineToArgvW 一致', () => {
@@ -59,4 +79,7 @@ test('全部字段有界面分组，媒体探测与输入关联', async () => {
   const c = defaultContext(); c.inputs = [{ id: 'one', path: 'new.mp4', probe: { path: 'old.mp4', data: { format: { duration: '10' } } } }];
   const p = await buildPlan(importPreset({ 剪辑区间_方法: '剔除中间', 剪辑区间_入点: '00:00:01' }), c);
   assert.equal(p.status, 'missing'); assert.ok(p.issues.some(x => x.message.includes('ffprobe')));
+  const mapped = defaultContext(); mapped.platform = 'linux'; mapped.shell = 'bash'; mapped.inputs = [{ id: 'template', path: '/media/input.mp4' }]; mapped.pathMappings = [{ from: 'D:\\tpl', to: '/tmp/tpl' }]; mapped.resources['D:\\tpl\\a.avs'] = 'Source("<FilePath>")';
+  const template = await buildPlan(importPreset({ 视频参数_视频帧服务器_使用AviSynth: true, 视频参数_视频帧服务器_avs脚本文件: 'D:\\tpl\\a.avs' }), mapped);
+  assert.equal(template.status, 'ready', JSON.stringify(template.issues)); assert.match(template.tasks[0].assets[0].content, /\/media\/input.mp4/);
 });

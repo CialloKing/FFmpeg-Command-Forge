@@ -24,7 +24,7 @@ function psOutputExpression(value: string, output: string): string {
 }
 function needsOutput(task: PlannedTask): boolean { return task.stages.some(s => s.args.some(a => a.includes(task.output))); }
 function windowsStatements(plan: CommandPlan, legacy: boolean): string[] {
-  const lines = ["$ErrorActionPreference = 'Stop'", "$forgeReserved = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)"];
+  const lines = ["$ErrorActionPreference = 'Stop'", `$forgeReserved = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::${plan.context.platform === 'windows' ? 'OrdinalIgnoreCase' : 'Ordinal'})`];
   if (plan.context.cwd) { lines.push(`Set-Location -LiteralPath ${psQuote(plan.context.cwd)}`); }
   for (const task of plan.tasks) {
     const usesOutput = needsOutput(task);

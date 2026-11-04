@@ -6,7 +6,10 @@
   "scripts": {
     "build": "node tools/build.mjs",
     "check": "tsc --noEmit",
+    "oracle": "dotnet build tools/oracle/Oracle.vbproj --nologo -v:q",
+    "pretest": "npm run oracle",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:browser": "node tools/browser-check.mjs",
     "baseline": "node tools/upstream.mjs",
     "preview": "node tools/serve.mjs"
   },

@@ -7,7 +7,7 @@ export function streamList(values: string[], type: string): string[] { return [.
 export const optionalMap = (s: string) => s.replace(/\?+$/, '') + '?';
 export const selector = (s: string, type: string) => { const parts = s.replace(/\?+$/, '').split(':').filter(Boolean); return parts.at(-2)?.toLowerCase() === type && /^\d+$/.test(parts.at(-1)!) ? type + ':' + parts.at(-1) : type; };
 export function subtitleCodec(codec: string, a: Preset, output: string, auto = false): string {
-  const ext = (a.输出容器 || extension(output)).replace(/^\./, '').toLowerCase();
+  const ext = (extension(output) || a.输出容器).replace(/^\./, '').toLowerCase();
   if (['mp4', 'mov', 'm4v', 'm4a', '3gp', '3g2', 'mj2'].includes(ext)) { return codec === 'copy' && !auto ? codec : codec ? 'mov_text' : ''; }
   if (ext === 'webm') { return codec === 'copy' && !auto ? codec : codec ? 'webvtt' : ''; }
   if (['mkv', 'mka', 'mks'].includes(ext) && codec.toLowerCase() === 'mov_text') { return 'copy'; }

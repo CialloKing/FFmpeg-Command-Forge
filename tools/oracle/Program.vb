@@ -9,6 +9,15 @@ Module Program
         Console.InputEncoding = New System.Text.UTF8Encoding(False)
         Console.OutputEncoding = New System.Text.UTF8Encoding(False)
         JsonSO.Converters.Add(New JsonStringEnumConverter())
+        If args.Contains("--times") Then
+            Dim parsed = args.Skip(1).Select(Function(value)
+                                                Dim span As TimeSpan
+                                                Dim ok = TimeSpan.TryParse(value, Globalization.CultureInfo.InvariantCulture, span)
+                                                Return New With {.text = value, .ok = ok, .seconds = If(ok, span.TotalSeconds, 0)}
+                                            End Function).ToArray()
+            Console.WriteLine(JsonSerializer.Serialize(parsed, JsonSO))
+            Return
+        End If
         If args.Contains("--schema") Then
             Dim data As New 预设数据_v6
             预设管理_v6.初始化空集合(data)

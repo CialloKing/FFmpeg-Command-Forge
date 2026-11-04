@@ -39,7 +39,7 @@ export function encode(a: Preset, g: GraphResult, phase: string, input: string, 
   if (g.requestVideo && !video?.是否禁用) {
     for (const s of g.video.length ? g.video : ['']) {
       if (video && !video.是否复制流) {
-        for (const [role, key] of [['编码预设', '编码预设'], ['配置文件', '配置文件'], ['场景优化', '场景优化'], ['图片质量', '图片编码器质量值']]) { add(result, video[role]?.参数名 || ({ 编码预设: '-preset', 配置文件: '-profile', 场景优化: '-tune', 图片质量: '-q:v' } as Record<string, string>)[role], a['视频参数_编码器_' + key], s); }
+        for (const [role, key] of [['编码预设', '编码预设'], ['配置文件', '配置文件'], ['场景优化', '场景优化'], ['图片质量', '图片编码器质量值']]) { add(result, video[role] ? video[role].参数名 : ({ 编码预设: '-preset', 配置文件: '-profile', 场景优化: '-tune', 图片质量: '-q:v' } as Record<string, string>)[role], a['视频参数_编码器_' + key], s); }
       }
       if (!video?.是否复制流) { add(result, '-r', a.视频参数_帧速率, s); add(result, '-fps_mode', fpsMode(a.视频参数_帧速率模式), s); add(result, '-pix_fmt', a.视频参数_色彩管理_像素格式, s); }
       if (colorMetadata(a)) { for (const [name, key] of [['-colorspace', '矩阵系数'], ['-color_primaries', '色域'], ['-color_trc', '传输特性'], ['-color_range', '范围']]) { add(result, name, key === '范围' ? colorRange(a['视频参数_色彩管理_' + key]) : colorValue(a['视频参数_色彩管理_' + key]), s); } }

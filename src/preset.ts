@@ -25,7 +25,7 @@ function normalize(value: any, spec: Schema, fallback: any, path: string, issues
   if (spec.kind === 'object') {
     if (typeof value !== 'object' || Array.isArray(value)) { issues.push({ level: 'error', field: path, message: `${path} 必须是对象` }); value = {}; }
     const result: Preset = {};
-    for (const [key, child] of Object.entries(spec.fields!)) { result[key] = normalize(value[key], child, fallback?.[key], path ? `${path}.${key}` : key, issues); }
+    for (const [key, child] of Object.entries(spec.fields!)) { result[key] = key === '实例ID' && !value[key] ? crypto.randomUUID().replaceAll('-', '') : normalize(value[key], child, fallback?.[key], path ? `${path}.${key}` : key, issues); }
     for (const key of Object.keys(value)) {
       if (!Object.hasOwn(spec.fields!, key) && meaningful(value[key])) { issues.push({ level: 'error', field: path ? `${path}.${key}` : key, message: `未识别的非空字段：${path ? path + '.' : ''}${key}` }); }
     }
