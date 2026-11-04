@@ -7,6 +7,7 @@ export const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const meaningful = (v: unknown): boolean => v !== null && v !== '' && v !== false && v !== 0 && (Array.isArray(v) ? v.length > 0 : typeof v === 'object' ? Object.values(v as object).some(meaningful) : true);
 
 function normalize(value: any, spec: Schema, fallback: any, path: string, issues: Issue[]): any {
+  if (fallback === undefined) { fallback = spec.defaults; }
   if (value === undefined || value === null) { value = fallback ?? (spec.kind === 'object' ? {} : spec.kind === 'array' ? [] : spec.kind === 'boolean' ? false : spec.kind === 'number' ? 0 : spec.kind === 'enum' ? 0 : ''); }
   if (spec.kind === 'enum') {
     let n = typeof value === 'number' ? value : spec.values?.[value];

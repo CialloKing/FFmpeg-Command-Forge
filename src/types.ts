@@ -1,10 +1,10 @@
 export type Preset = Record<string, any>;
-export type Schema = { kind: string; fields?: Record<string, Schema>; items?: Schema; values?: Record<string, number> };
+export type Schema = { kind: string; fields?: Record<string, Schema>; items?: Schema; values?: Record<string, number>; defaults?: any };
 export type Platform = 'windows' | 'linux' | 'macos';
 export type Shell = 'powershell' | 'powershell5' | 'cmd' | 'bash' | 'zsh';
 export interface Issue { level: 'error' | 'missing' | 'info'; message: string; field?: string }
 export interface PresetDocument { raw: Preset; normalized: Preset; issues: Issue[] }
-export interface InputTask { id: string; path: string; output?: string; probe?: { path: string; data: any }; subtitle?: string; sidecars?: string[]; sidecarsConfirmed?: boolean }
+export interface InputTask { id: string; path: string; output?: string; probe?: { path: string; resolvedPath?: string; data: any }; subtitle?: string; sidecars?: string[]; sidecarsConfirmed?: boolean }
 export interface ExecutionContext {
   platform: Platform; shell: Shell; ffmpeg: string; ffprobe: string; cwd: string;
   outputDirectory: string; inputs: InputTask[]; pathMappings: { from: string; to: string }[];

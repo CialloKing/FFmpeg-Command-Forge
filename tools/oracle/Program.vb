@@ -54,7 +54,7 @@ Module Program
         If t.IsPrimitive Then Return New With {.kind = "number"}
         If t.IsArray Then Return New With {.kind = "array", .items = Describe(t.GetElementType())}
         If t.IsGenericType Then Return New With {.kind = "array", .items = Describe(t.GetGenericArguments()(0))}
-        Return New With {.kind = "object", .fields = t.GetProperties().Where(Function(p) p.GetCustomAttribute(Of JsonIgnoreAttribute)() Is Nothing).ToDictionary(Function(p) p.Name, Function(p) Describe(p.PropertyType))}
+        Return New With {.kind = "object", .defaults = Activator.CreateInstance(t), .fields = t.GetProperties().Where(Function(p) p.GetCustomAttribute(Of JsonIgnoreAttribute)() Is Nothing).ToDictionary(Function(p) p.Name, Function(p) Describe(p.PropertyType))}
     End Function
 
     <DllImport("shell32.dll", CharSet:=CharSet.Unicode, SetLastError:=True)>

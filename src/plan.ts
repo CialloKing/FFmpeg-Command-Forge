@@ -54,7 +54,7 @@ function nameFor(a: Preset, input: string, c: ExecutionContext, taskId: string):
 function uniqueOutput(base: string, ext: string, mode: number, used: Set<string>, platform: string): string {
   const key = (s: string) => platform === 'windows' ? s.toLowerCase() : s;
   let candidate = base + ext, i = 1;
-  if ([11, 12].includes(mode)) { const trailing = base.match(/\d+$/)?.[0] || ''; const width = Math.max(mode === 11 ? 2 : 3, trailing.length); base = base.slice(0, base.length - trailing.length); candidate = base + String(i).padStart(width, '0') + ext; while (used.has(key(candidate))) { candidate = base + String(++i).padStart(width, '0') + ext; } }
+  if ([11, 12].includes(mode)) { const trailing = base.match(/\d+$/)?.[0] || ''; const width = Math.max(mode === 11 ? 2 : 3, trailing.length); i = trailing ? Number(trailing) + 1 : 1; base = base.slice(0, base.length - trailing.length); candidate = base + String(i).padStart(width, '0') + ext; while (used.has(key(candidate))) { candidate = base + String(++i).padStart(width, '0') + ext; } }
   else if ([1, 2].includes(mode)) { const name = base.replace(/~\d+$/, ''); while (used.has(key(candidate))) { candidate = name + '~' + i++ + ext; } }
   used.add(key(candidate)); return candidate;
 }
@@ -98,7 +98,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext):
     const candidateStem = nameFor(a, input, c, task.id);
     const output = task.output ? mapPath(task.output, c) : uniqueOutput(join(dir, candidateStem, c.platform === 'windows' ? '\\' : '/'), ext ? '.' + ext : '', a.输出_自动命名选项, used, c.platform);
     if (input === output && !noOutput) { problem('error', '输入路径和输出路径不能相同，请修改输出文件名'); }
-    const probe = task.probe?.path === task.path ? task.probe.data : undefined;
+    const probe = task.probe?.path === task.path && (!task.probe.resolvedPath || task.probe.resolvedPath === input) ? task.probe.data : undefined;
     probes.push(probeStage(input, task.id, c));
     const custom = a.自定义参数_完全自己写.trim();
     if (!custom && [5, 6].includes(a.剪辑区间_方法) && !Number.isFinite(Number(probe?.format?.duration))) { problem('missing', `${filename(input)}：此剪辑方式需要导入 ffprobe 时长信息`); }
