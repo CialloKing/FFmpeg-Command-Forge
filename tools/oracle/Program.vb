@@ -6,6 +6,8 @@ Imports System.Runtime.InteropServices
 Module Program
     Public ReadOnly JsonSO As New JsonSerializerOptions With {.WriteIndented = True, .Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping}
     Sub Main(args As String())
+        Console.InputEncoding = New System.Text.UTF8Encoding(False)
+        Console.OutputEncoding = New System.Text.UTF8Encoding(False)
         JsonSO.Converters.Add(New JsonStringEnumConverter())
         If args.Contains("--schema") Then
             Dim data As New 预设数据_v6
@@ -69,9 +71,6 @@ Module Program
         Finally
             LocalFree(p)
         End Try
-    End Function
-    Public Function 将路径转换为FFmpeg滤镜接受的格式(value As String) As String
-        Return value.Replace("\", "/").Replace(":", "\:").Replace("'", "\'")
     End Function
     Public Function 转译模式处理路径(value As String) As String
         Return value
