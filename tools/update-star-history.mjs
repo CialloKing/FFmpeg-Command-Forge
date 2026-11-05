@@ -398,12 +398,14 @@ export function renderStarHistorySvg(rows, repository)
   });
   const latest = rows.at(-1);
   const title = escapeXml(`${repository} Star History`);
+  // 可见标题省略所有者，为右侧的 Star 数量留出空间。
+  const heading = escapeXml(`${repository.split('/')[1]} Star History`);
   const lines = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_RENDER_WIDTH}" height="${SVG_RENDER_HEIGHT}" viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}" role="img" aria-labelledby="title desc">`,
     `  <title id="title">${title}</title>`,
     `  <desc id="desc">Star history through ${latest.date}.</desc>`,
     '  <rect x="0.5" y="0.5" width="719" height="359" rx="8" fill="#ffffff" stroke="#d0d7de"/>',
-    `  <text x="${margin.left}" y="38" fill="#24292f" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="26" font-weight="600">${title}</text>`,
+    `  <text x="${margin.left}" y="38" fill="#24292f" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="26" font-weight="600">${heading}</text>`,
     `  <text x="${SVG_WIDTH - margin.right}" y="38" text-anchor="end" fill="#24292f" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22" font-weight="600">${latest.stars} Stars</text>`,
     ...yGrid,
     `  <line x1="${margin.left}" y1="${margin.top + plotHeight}" x2="${SVG_WIDTH - margin.right}" y2="${margin.top + plotHeight}" stroke="#8c959f" stroke-width="1"/>`,

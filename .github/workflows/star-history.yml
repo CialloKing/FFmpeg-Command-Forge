@@ -20,20 +20,20 @@ jobs:
     steps:
       # 固定从主分支读取更新脚本，数据分支只存放生成结果。
       - name: 检出更新脚本
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
           path: source
           persist-credentials: false
 
       - name: 检出 Star 历史
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: star-history
           path: history
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
 
