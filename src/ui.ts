@@ -77,10 +77,111 @@ function renderNav(): void {
 }
 function navigate(name: string): void { selected = name; query = ''; renderEditor(); renderNav(); }
 function labeled(label: string, node: HTMLElement, hint = '', wide = false): HTMLDivElement {
-  const field = el('div', 'field' + (wide ? ' wide' : '')); const id = 'field-' + crypto.randomUUID(); node.id = id; const l = el('label', '', label); l.htmlFor = id; field.append(l, node); if (hint) { field.append(el('small', 'hint', hint)); } return field;
+  const field = el('div', 'field' + (wide ? ' wide' : '')); const control = node.querySelector('input[role="combobox"]') ?? node;
+  const id = 'field-' + crypto.randomUUID(); control.id = id; const l = el('label', '', label); l.htmlFor = id; field.append(l, node); if (hint) { field.append(el('small', 'hint', hint)); } return field;
 }
 function textInput(value: string, onChange: (v: string) => void, placeholder = ''): HTMLInputElement { const input = el('input'); input.value = value; input.placeholder = placeholder; input.oninput = () => onChange(input.value); return input; }
-function selectInput(options: [string, string][], value: string, onChange: (v: string) => void): HTMLSelectElement { const select = el('select'); for (const [v, name] of options) { const o = el('option', '', name); o.value = v; select.append(o); } select.value = value; select.onchange = () => onChange(select.value); return select; }
+type Choice = [value: string, label: string];
+function choiceInput(options: Choice[], value: string, onChange: (v: string) => void, allowCustom = false): HTMLElement {
+  const field = el('div', 'choice');
+  const input = el('input');
+  const popup = el('div', 'choice-popup');
+  const list = el('div');
+  const empty = el('div', 'choice-empty', '没有匹配的选项');
+  const toggle = button('▾', () => {
+    if (!popup.hidden) { dismiss(); return; }
+    input.focus(); input.select(); showChoices('');
+  }, 'choice-toggle');
+  let matches: Choice[] = [];
+  let active = -1;
+
+  const displayValue = () => options.find(([id]) => id === value)?.[1] ?? value;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.setAttribute('autocapitalize', 'off');
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-autocomplete', 'list');
+  list.id = 'choices-' + crypto.randomUUID();
+  list.setAttribute('role', 'listbox');
+  list.setAttribute('aria-label', '候选选项');
+  input.setAttribute('aria-controls', list.id);
+  toggle.setAttribute('aria-label', '切换候选列表');
+  toggle.tabIndex = -1;
+  toggle.onmousedown = event => event.preventDefault();
+  empty.setAttribute('role', 'status');
+  popup.append(list, empty);
+  field.append(input, toggle, popup);
+  dismiss();
+
+  function dismiss(label = displayValue()): void {
+    popup.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    input.value = label;
+  }
+  function update(next: string): void {
+    if (next !== value) { value = next; onChange(next); }
+  }
+  function choose([id, label]: Choice): void {
+    dismiss(label);
+    update(id);
+  }
+  function showChoices(query: string): void {
+    const terms = query.trim().toLowerCase().split(/\s+/);
+    matches = options.filter(([id, label]) => terms.every(term => `${label} ${id}`.toLowerCase().includes(term)));
+    active = -1;
+    input.removeAttribute('aria-activedescendant');
+    list.replaceChildren(...matches.map((choice, index) => {
+      const option = el('div', 'choice-option', choice[1]);
+      option.id = `${list.id}-${index}`;
+      option.setAttribute('role', 'option');
+      option.setAttribute('aria-selected', 'false');
+      // 保持焦点在输入框上，以免候选项在点击生效前被失焦事件关闭。
+      option.onmousedown = event => event.preventDefault();
+      option.onclick = () => choose(choice);
+      return option;
+    }));
+    empty.hidden = matches.length > 0;
+    const bounds = input.getBoundingClientRect();
+    const below = window.innerHeight - bounds.bottom;
+    popup.classList.toggle('above', below < 240 && bounds.top > below);
+    popup.hidden = false;
+    popup.scrollTop = 0;
+    input.setAttribute('aria-expanded', 'true');
+  }
+
+  input.onfocus = () => input.select();
+  input.onclick = () => { if (popup.hidden) { input.select(); showChoices(''); } };
+  input.onblur = () => dismiss();
+  input.oninput = () => {
+    if (allowCustom) { update(input.value); }
+    showChoices(input.value);
+  };
+  input.onkeydown = event => {
+    if (event.isComposing) { return; }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (popup.hidden) { showChoices(''); }
+      if (!matches.length) { return; }
+      list.children[active]?.setAttribute('aria-selected', 'false');
+      const direction = event.key === 'ArrowDown' ? 1 : -1;
+      const next = active < 0 && direction < 0 ? matches.length - 1 : active + direction;
+      active = Math.max(0, Math.min(next, matches.length - 1));
+      const option = list.children[active];
+      option.setAttribute('aria-selected', 'true');
+      input.setAttribute('aria-activedescendant', option.id);
+      option.scrollIntoView({ block: 'nearest' });
+    } else if (event.key === 'Enter' && !popup.hidden) {
+      event.preventDefault();
+      if (active >= 0) { choose(matches[active]); }
+      else if (!allowCustom && matches.length === 1) { choose(matches[0]); }
+      else if (allowCustom) { dismiss(); }
+    } else if (event.key === 'Escape' && !popup.hidden) {
+      event.preventDefault(); dismiss();
+    }
+  };
+  return field;
+}
 function heading(title: string, number: string): HTMLDivElement { const h = el('div', 'section-line'); h.append(el('span', '', number), el('h3', '', title)); return h; }
 const parameterHints: Record<string, string> = { 视频参数_编码器_具体编码: '-c:v', 视频参数_编码器_编码预设: '-preset', 视频参数_帧速率: '-r', 视频参数_帧速率模式: '-fps_mode', 视频参数_分辨率: 'scale / scale_cuda', 视频参数_分辨率_裁剪滤镜参数: 'crop', 视频参数_比特率_基础: '-b:v', 视频参数_比特率_最低值: '-minrate', 视频参数_比特率_最高值: '-maxrate', 视频参数_比特率_缓冲区: '-bufsize', 视频参数_色彩管理_像素格式: '-pix_fmt', 音频参数_编码器_代号: '-c:a · 使用 3FUI 私有 ID', 音频参数_比特率: '-b:a', 音频参数_采样率: '-ar', 音频参数_位深度: '-sample_fmt', 解码参数_解码器: '-hwaccel', 解码参数_解码数据格式: '-hwaccel_output_format', 剪辑区间_入点: '-ss / trim · 建议使用 00:00:10 或 10.0', 剪辑区间_出点: '-to / trim · 建议使用 00:00:20 或 20.0', 输出_自动命名选项: '自动命名与冲突处理包含在完整脚本中', 自定义参数_完全自己写: '覆盖自动生成的 FFmpeg 参数；按原版 Windows 参数语法解析，不执行 Shell 代码' };
 const familyHints: [string, string][] = [
@@ -116,34 +217,28 @@ function parameterField(key: string, spec: Schema, value: any, path: (string | n
   if (spec.kind === 'boolean') {
     const input = el('input'); input.type = 'checkbox'; input.checked = !!value; input.onchange = () => edit(path, input.checked); const field = labeled(label, input); field.className = 'field boolean'; field.prepend(input); return field;
   }
-  let input: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+  let input: HTMLElement;
   if (spec.kind === 'enum') {
     const name = typeof value === 'number' ? Object.keys(spec.values!).find(k => spec.values![k] === value) || String(value) : String(value);
-    const options = Object.keys(spec.values!).map(k => [k, k.replaceAll('_', ' ')] as [string, string]); if (!Object.hasOwn(spec.values!, name)) { options.unshift([name, '未知：' + name]); }
-    input = selectInput(options, name, v => edit(path, v));
+    const options: Choice[] = Object.keys(spec.values!).map(k => [k, k.replaceAll('_', ' ')]); if (!Object.hasOwn(spec.values!, name)) { options.unshift([name, '未知：' + name]); }
+    input = choiceInput(options, name, v => edit(path, v));
   } else if (key === '音频参数_编码器_代号') {
     const current = String(value ?? '');
     const knownId = data.audio.find(codec => codec.私有ID.toLowerCase() === current.toLowerCase())?.私有ID;
-    const options: [string, string][] = data.audio.map(codec => [codec.私有ID, `${codec.显示名称}（${codec.私有ID}）`]);
+    const options: Choice[] = data.audio.map(codec => [codec.私有ID, `${codec.显示名称}（${codec.私有ID}）`]);
     options.unshift(['', '未设置']);
     // 保留未知的导入值，避免下拉框将无法生成命令的预设误显示为未设置。
     if (current && !knownId) { options.unshift([current, '未知：' + current]); }
-    input = selectInput(options, knownId ?? current, v => edit(path, v));
+    input = choiceInput(options, knownId ?? current, v => edit(path, v));
+  } else if (key === '视频参数_编码器_具体编码' || key === '输出容器') {
+    const choices = key === '视频参数_编码器_具体编码' ? Object.keys(data.video) : ['mp4', 'mkv', 'webm', 'mov', 'mp3', 'flac', 'wav', 'opus', 'png'];
+    input = choiceInput(choices.map(choice => [choice, choice]), String(value ?? ''), v => edit(path, v), true);
   } else if (/自定义参数|自己写滤镜|进阶参数集/.test(key)) {
-    input = el('textarea', 'mono'); input.value = value ?? ''; input.onchange = () => edit(path, (input as HTMLTextAreaElement).value);
+    const area = el('textarea', 'mono'); area.value = value ?? ''; area.onchange = () => edit(path, area.value); input = area;
   } else {
-    input = textInput(String(value ?? ''), v => edit(path, spec.kind === 'number' ? Number(v || 0) : v));
-    if (spec.kind === 'number') { input.type = 'number'; input.step = 'any'; }
-    const choices = key === '视频参数_编码器_具体编码' ? Object.keys(data.video) : key === '输出容器' ? ['mp4', 'mkv', 'webm', 'mov', 'mp3', 'flac', 'wav', 'opus', 'png'] : [];
-    if (choices.length) {
-      const id = 'choices-' + key;
-      if (!document.getElementById(id)) {
-        const list = el('datalist'); list.id = id;
-        for (const choice of choices) { const option = el('option'); option.value = choice; list.append(option); }
-        document.body.append(list);
-      }
-      input.setAttribute('list', id);
-    }
+    const text = textInput(String(value ?? ''), v => edit(path, spec.kind === 'number' ? Number(v || 0) : v));
+    if (spec.kind === 'number') { text.type = 'number'; text.step = 'any'; }
+    input = text;
   }
   const field = labeled(label, input, hint, /自定义参数|自己写滤镜|进阶参数集/.test(key));
   if (/^(视频参数_视频帧服务器_)(avs|vpy)脚本文件$/.test(key)) { field.append(button('导入模板内容', () => pick('.avs,.vpy,.py,.txt', async f => { const path = String(doc.normalized[key] || f.name); if (!doc.normalized[key]) { edit([key], f.name); } context.resources[path] = await f.text(); schedule(); toast('已导入模板：' + f.name); }), 'small')); }
@@ -169,7 +264,7 @@ function filterOrder(): HTMLElement {
 function environment(): HTMLElement {
   const content = el('div', 'stack');
   const card = el('div', 'card stack'), grid = el('div', 'grid2');
-  grid.append(labeled('目标系统', selectInput([['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']], context.platform, v => { context.platform = v as ExecutionContext['platform']; context.shell = v === 'windows' ? 'powershell' : v === 'macos' ? 'zsh' : 'bash'; context.confirmedPaths = []; context.inputs.forEach(t => { t.probe = undefined; t.sidecarsConfirmed = false; }); schedule(); renderEditor(); })), labeled('执行终端', selectInput(Object.entries(labels), context.shell, v => { context.shell = v as Shell; schedule(); })));
+  grid.append(labeled('目标系统', choiceInput([['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']], context.platform, v => { context.platform = v as ExecutionContext['platform']; context.shell = v === 'windows' ? 'powershell' : v === 'macos' ? 'zsh' : 'bash'; context.confirmedPaths = []; context.inputs.forEach(t => { t.probe = undefined; t.sidecarsConfirmed = false; }); schedule(); renderEditor(); })), labeled('执行终端', choiceInput(Object.entries(labels), context.shell, v => { context.shell = v as Shell; schedule(); })));
   grid.append(labeled('FFmpeg 程序', textInput(context.ffmpeg, v => { context.ffmpeg = v; schedule(); }), '默认从 PATH 查找，也可填写完整路径'), labeled('ffprobe 程序', textInput(context.ffprobe, v => { context.ffprobe = v; schedule(); })));
   grid.append(labeled('工作目录', textInput(context.cwd, v => { context.cwd = v; schedule(); }, context.platform === 'windows' ? '例如 D:\\Media' : '例如 /home/user/Media'), '相对路径将在此目录下解释'), labeled('本次输出目录', textInput(context.outputDirectory, v => { context.outputDirectory = v; schedule(); }, '留空时使用预设或输入文件目录')));
   card.append(grid); content.append(heading('执行环境', '01'), card, heading('输入文件', '02'));
@@ -213,13 +308,14 @@ function environment(): HTMLElement {
 function presetCard(presets: { 名称: string; 数据: Preset }[], label: string): HTMLElement {
   const card = el('section', 'card preset-card');
   card.setAttribute('aria-label', label);
-  const description = el('p', 'description', presets[0]?.数据.预设备注 ?? '');
-  const select = selectInput(presets.map((preset, i) => [String(i), preset.名称]), '0', value => {
-    description.textContent = presets[Number(value)]?.数据.预设备注 ?? '';
+  let preset = presets[0];
+  const description = el('p', 'description', preset?.数据.预设备注 ?? '');
+  const choice = choiceInput(presets.map((preset, i) => [String(i), preset.名称]), '0', value => {
+    preset = presets[Number(value)];
+    description.textContent = preset?.数据.预设备注 ?? '';
   });
-  select.setAttribute('aria-label', label);
-  card.append(select, description, button('应用此预设', () => {
-    const preset = presets[Number(select.value)];
+  card.append(labeled(label, choice), description, button('应用此预设', () => {
+    if (!preset) { return; }
     doc = importPreset(preset.数据);
     schedule();
     toast('已应用：' + preset.名称);
