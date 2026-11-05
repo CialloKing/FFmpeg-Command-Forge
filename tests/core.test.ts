@@ -5,6 +5,7 @@ import { data, exportPreset, importPreset, patchPreset, schema } from '../src/pr
 import { buildPlan, defaultContext } from '../src/plan';
 import { parseArguments, windowsQuote } from '../src/arguments';
 import { relativeSubdirectory, seconds } from '../src/paths';
+import ffmpegFull from '../src/data/ffmpeg-full-2026.11.3.json';
 
 test('预设往返保留原始嵌套数据，未知内容阻断执行', async () => {
   const raw = { 预设文件版本: 6, 视频参数_比特率_控制方式: 3, 自定义扩展: { future: 'keep' }, 元数据_要写入的信息: [{ 字段: 'title', 值: '中文', 扩展: 'keep too' }] };
@@ -18,9 +19,15 @@ test('预设往返保留原始嵌套数据，未知内容阻断执行', async ()
 });
 
 test('原版参数与 TypeScript 执行计划保持一致', async () => {
-  const cases: { name: string; preset: any; duration?: string; input?: string }[] = [
+  const cases: { name: string; preset: any; duration?: string; input?: string; output?: string; expectReady?: boolean }[] = [
     { name: 'default', preset: {} },
     ...data.builtins.map(x => ({ name: x.名称, preset: x.数据 })),
+    ...ffmpegFull.presets.map(preset => ({
+      name: 'ffmpeg-full/' + preset.名称,
+      preset: preset.数据,
+      output: 'D:\\输出\\result' + preset.数据.输出容器,
+      expectReady: true
+    })),
     { name: 'x264 audio metadata', preset: { 视频参数_编码器_具体编码: 'libx264', 视频参数_编码器_类型: '视频', 视频参数_编码器_编码预设: 'slow', 视频参数_比特率_控制方式: 'CRF', 视频参数_质量控制_值: '23', 音频参数_编码器_代号: 'aac.nmr', 音频参数_比特率: '128k', 元数据_要写入的信息: [{ 字段: 'title', 值: '中文 "标题"' }] } },
     { name: 'copy streams', preset: { 视频参数_编码器_具体编码: 'copy', 音频参数_编码器_代号: 'audio.copy', 流控制_将视频参数应用于指定流: ['0', '1'], 流控制_将音频参数应用于指定流: ['1'], 流控制_启用保留其他音频流: true, 流控制_将字幕参数应用于指定流: ['0'], 流控制_如何操作指定的字幕: '转为_mov_text' } },
     { name: 'filter order', preset: { 视频参数_编码器_具体编码: 'libx264', 视频参数_分辨率: '1280x720', 视频参数_画面翻转_镜像翻转: '水平镜像', 自定义参数_视频滤镜: "eq=contrast=1.1", 视频参数_降噪_方式: 'hqdn3d', 视频参数_降噪_参数1: '1', 音频参数_编码器_代号: 'aac.native', 音频参数_响度标准化_启用调整目标响度: true, 音频参数_响度标准化_目标响度: '-16' } },
@@ -48,14 +55,15 @@ test('原版参数与 TypeScript 执行计划保持一致', async () => {
   for (const name of Object.keys(data.video)) { cases.push({ name: 'video catalog/' + name, preset: { 视频参数_编码器_具体编码: name, 视频参数_编码器_编码预设: 'fast', 视频参数_编码器_配置文件: 'main', 视频参数_编码器_场景优化: 'film', 视频参数_编码器_图片编码器质量值: '2' } }); }
   for (const audio of data.audio) { cases.push({ name: 'audio catalog/' + audio.私有ID, preset: { 音频参数_编码器_代号: audio.私有ID, 音频参数_质量参数名: 'q:a', 音频参数_质量值: '2' } }); }
   const input = 'D:\\素材\\视频 test.mp4', output = 'D:\\输出\\result.mkv';
-  const requests = cases.map(x => ({ preset: x.preset, input: x.input ?? input, output, duration: x.duration || '' }));
+  const requests = cases.map(x => ({ preset: x.preset, input: x.input ?? input, output: x.output ?? output, duration: x.duration || '' }));
   const oracle = spawnSync('dotnet', ['tools/oracle/bin/Debug/net10.0/Oracle.dll'], { input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', maxBuffer: 8e6 });
   assert.equal(oracle.status, 0, oracle.stderr);
   const results = oracle.stdout.trim().split(/\r?\n/).map(x => JSON.parse(x));
   for (let i = 0; i < cases.length; i++) {
     const sampleInput = requests[i].input;
-    const context = defaultContext(); context.inputs = [{ id: 'test', path: sampleInput, output, probe: { path: sampleInput, data: { format: { duration: cases[i].duration || '30.0' }, streams: [] } } }];
+    const context = defaultContext(); context.inputs = [{ id: 'test', path: sampleInput, output: requests[i].output, probe: { path: sampleInput, data: { format: { duration: cases[i].duration || '30.0' }, streams: [] } } }];
     const plan = await buildPlan(importPreset(cases[i].preset), context);
+    if (cases[i].expectReady) { assert.equal(plan.status, 'ready', JSON.stringify(plan.issues)); }
     assert.equal(results[i].error, undefined, cases[i].name);
     assert.equal(plan.tasks[0].stages.length, results[i].length, cases[i].name);
     results[i].forEach((r: any, j: number) => { assert.deepEqual(plan.tasks[0].stages[j].args, parseArguments(r.命令行), cases[i].name); assert.equal(plan.tasks[0].stages[j].graph, r.滤镜图, cases[i].name); });

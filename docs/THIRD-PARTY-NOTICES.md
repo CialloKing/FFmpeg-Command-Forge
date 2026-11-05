@@ -1,6 +1,7 @@
 # 第三方说明
 
 - FFmpegFreeUI：1059 Studio，MIT。移植预设数据、数据库和纯命令生成规则；固定来源见 `upstream.json`，原许可见 `FFmpegFreeUI-LICENSE.txt`。不分发或链接 LakeUI，不包含原版的原生 UI、Agent 及硬件监控组件。
+- ffmpeg-full：Dominic，MIT。预设来自 [2026.11.3 发行版](https://github.com/Dominic485649/ffmpeg-full/releases/tag/2026.11.3) 的 8 个 JSON 附件，原始字段、参数和附件的 SHA-256 记录在 `src/data/ffmpeg-full-2026.11.3.json`。许可证见 `FFmpeg-Full-LICENSE.txt`，并随单文件 HTML 分发。
 - fflate：Arjun Barrett，MIT。用于浏览器内生成任务 ZIP，实际版本和许可证包含在依赖锁文件及发布 HTML 中。
 - .NET 时间解析兼容规则：参考 .NET Foundation 的 MIT 开源运行时和实际 .NET 10 对照结果，以保持原版 TimeSpan 行为。
 - TypeScript、esbuild、tsx、Playwright：开发及验证工具，不要求最终用户安装，依照各自软件包许可使用。

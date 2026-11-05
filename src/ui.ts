@@ -1,5 +1,6 @@
 import { zipSync, strToU8 } from 'fflate';
 import { revision, version as upstreamVersion } from '../docs/upstream.json';
+import ffmpegFull from './data/ffmpeg-full-2026.11.3.json';
 import { blankValue, clone, data, exportPreset, groupFor, groups, importPreset, schema } from './preset';
 import { buildPlan, defaultContext, resolvedInput } from './plan';
 import { downloadableScript, renderCommand, renderPlan } from './render';
@@ -193,19 +194,37 @@ function environment(): HTMLElement {
   }
   mappingCard.append(resources); content.append(mappingCard); return content;
 }
+function presetCard(presets: { 名称: string; 数据: Preset }[], label: string): HTMLElement {
+  const card = el('section', 'card preset-card');
+  card.setAttribute('aria-label', label);
+  const description = el('p', 'description', presets[0]?.数据.预设备注 ?? '');
+  const select = selectInput(presets.map((preset, i) => [String(i), preset.名称]), '0', value => {
+    description.textContent = presets[Number(value)]?.数据.预设备注 ?? '';
+  });
+  select.setAttribute('aria-label', label);
+  card.append(select, description, button('应用此预设', () => {
+    const preset = presets[Number(select.value)];
+    doc = importPreset(preset.数据);
+    schedule();
+    toast('已应用：' + preset.名称);
+  }, 'primary'));
+  return card;
+}
 function presetLibrary(): HTMLElement {
   const content = el('div', 'stack');
   content.append(el('div', 'banner', `原生预设格式为 ${presetFormat}（预设文件版本 = ${data.defaults.预设文件版本}）。工作目录、终端和探测结果保存在独立工作区中。`));
-  content.append(heading('内置预设', '01'));
-  const select = selectInput(data.builtins.map((p, i) => [String(i), p.名称]), '0', () => updateDescription());
-  const description = el('p', 'description'), card = el('div', 'card preset-card');
-  const updateDescription = () => { description.textContent = data.builtins[Number(select.value)]?.数据.预设备注 || ''; }; updateDescription();
-  card.append(select, description, button('应用此预设', () => { doc = importPreset(data.builtins[Number(select.value)].数据); schedule(); toast('已应用内置预设'); }, 'primary')); content.append(card);
-  content.append(heading('我的预设', '02'));
+  content.append(heading('内置预设', '01'), presetCard(data.builtins, '3FUI 内置预设'));
+  const fullCard = presetCard(ffmpegFull.presets, 'ffmpeg-full 发行版预设');
+  const source = el('a', 'muted', '查看发行版与运行要求');
+  source.href = ffmpegFull.release;
+  source.target = '_blank';
+  source.rel = 'noopener noreferrer';
+  fullCard.append(source);
+  content.append(heading(`ffmpeg-full ${ffmpegFull.version}`, '02'), fullCard, heading('我的预设', '03'));
   const saved = el('div', 'card stack'), name = textInput('', () => {}, '为当前预设命名');
   saved.append(row(name, button('保存副本', () => { if (!name.value.trim()) { toast('请先填写预设名称'); return; } library.push({ name: name.value.trim(), preset: clone(doc.raw) }); persistLibrary(); renderEditor(); }, 'small')));
   library.forEach((p, i) => { const r = el('div', 'saved-row'); r.append(el('span', 'grow', p.name), button('应用', () => { doc = importPreset(p.preset); schedule(); toast('已应用：' + p.name); }, 'small'), button('导出', () => save(JSON.stringify(p.preset, null, 2), p.name + '.json', 'application/json'), 'small ghost'), button('×', () => { library.splice(i, 1); persistLibrary(); renderEditor(); }, 'small ghost')); saved.append(r); });
-  saved.append(el('small', '', '浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。')); content.append(saved, heading('原生预设', '03'), button('查看或编辑完整 JSON', () => openTextDialog(presetHint, exportPreset(doc), text => { doc = importPreset(text); schedule(); renderEditor(); }), 'ghost')); return content;
+  saved.append(el('small', '', '浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。')); content.append(saved, heading('原生预设', '04'), button('查看或编辑完整 JSON', () => openTextDialog(presetHint, exportPreset(doc), text => { doc = importPreset(text); schedule(); renderEditor(); }), 'ghost')); return content;
 }
 function persistLibrary(): void { try { localStorage.setItem(libraryKey, JSON.stringify(library)); } catch { toast('浏览器存储不可用，请导出 JSON 保存'); } }
 function renderEditor(): void {
