@@ -1,6 +1,6 @@
 import type { CommandPlan, CommandStage, ExecutionContext, Issue, PlannedTask, RenderedPlan, Shell } from './types';
 import { windowsQuote } from './arguments';
-import { dirname, extension, stem, withoutExtension } from './paths';
+import { extension, splitTrailingSerial, withoutExtension } from './paths';
 
 export const posixQuote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 export const psQuote = (s: string) => "'" + s.replaceAll("'", "''") + "'";
@@ -32,9 +32,15 @@ function windowsStatements(plan: CommandPlan, legacy: boolean): string[] {
     if (usesOutput && task.directory) { lines.push(`[System.IO.Directory]::CreateDirectory(${psQuote(task.directory)}) | Out-Null`); }
     lines.push(`$forgeOutput = ${psQuote(task.output)}`);
     if (usesOutput && [1, 2, 11, 12].includes(task.naming)) {
-      const numbered = task.naming >= 11, pathStem = withoutExtension(task.output), digits = pathStem.match(/\d+$/)?.[0] || '', width = Math.max(task.naming === 11 ? 2 : 3, digits.length);
-      const base = numbered ? pathStem.slice(0, pathStem.length - digits.length) : pathStem.replace(/~\d+$/, '');
-      lines.push(`$forgeNumber = ${numbered ? Number(digits || '1') : 1}; while ((Test-Path -LiteralPath $forgeOutput) -or $forgeReserved.Contains($forgeOutput)) { $forgeOutput = ${psQuote(base)} + ${numbered ? `$forgeNumber.ToString(${psQuote('0'.repeat(width))})` : "'~' + $forgeNumber.ToString()"} + ${psQuote(extension(task.output))}; $forgeNumber++ }`);
+      const numbered = task.naming >= 11, pathStem = withoutExtension(task.output);
+      const { base: numberedBase, digits } = splitTrailingSerial(pathStem);
+      const base = numbered ? numberedBase : pathStem.replace(/~\d+$/, '');
+      const width = Math.max(task.naming === 11 ? 2 : 3, digits.length);
+      const start = numbered ? `[bigint]${psQuote(digits || '1')}` : '1';
+      const suffix = numbered ? `$forgeNumber.ToString(${psQuote('0'.repeat(width))})` : "'~' + $forgeNumber.ToString()";
+      // Windows PowerShell 5.1 does not support the increment operator on BigInteger.
+      const increment = numbered ? '$forgeNumber = [bigint]::Add($forgeNumber, [bigint]1)' : '$forgeNumber++';
+      lines.push(`$forgeNumber = ${start}; while ((Test-Path -LiteralPath $forgeOutput) -or $forgeReserved.Contains($forgeOutput)) { $forgeOutput = ${psQuote(base)} + ${suffix} + ${psQuote(extension(task.output))}; ${increment} }`);
       lines.push('[void]$forgeReserved.Add($forgeOutput)');
     }
     if (usesOutput) { lines.push('Write-Host (\'输出：\' + $forgeOutput)'); }
@@ -67,18 +73,32 @@ function posixScript(plan: CommandPlan): string {
   if (plan.context.cwd) { lines.push(`cd ${posixQuote(plan.context.cwd)}${fail}`); }
   // This value is scoped to the subshell; Zsh reserves names such as "status".
   lines.push('forge_reserved=()');
+  if (plan.tasks.some(task => task.naming >= 11 && needsOutput(task))) {
+    // Carry across decimal digits without depending on the shell's integer width.
+    lines.push('forge_increment_serial() {',
+      '  local prefix=$1 suffix= digit',
+      '  while [ "${prefix%9}" != "$prefix" ]; do',
+      '    prefix=${prefix%9}',
+      '    suffix=0$suffix',
+      '  done',
+      '  digit=${prefix#"${prefix%?}"}',
+      '  printf \'%s%s%s\' "${prefix%?}" "$(( ${digit:-0} + 1 ))" "$suffix"',
+      '}');
+  }
   for (const task of plan.tasks) {
     const usesOutput = needsOutput(task);
     lines.push(`printf '%s\n' ${posixQuote('任务：' + task.input)}`);
     if (usesOutput && task.directory) { lines.push(`mkdir -p ${posixQuote(task.directory)}${fail}`); }
     lines.push(`forge_output=${posixQuote(task.output)}`);
     if (usesOutput && [1, 2, 11, 12].includes(task.naming)) {
-      const numbered = task.naming >= 11, pathStem = withoutExtension(task.output), digits = pathStem.match(/\d+$/)?.[0] || '', width = Math.max(task.naming === 11 ? 2 : 3, digits.length);
-      const base = numbered ? pathStem.slice(0, pathStem.length - digits.length) : pathStem.replace(/~\d+$/, '');
-      lines.push(`forge_number=${numbered ? Number(digits || '1') : 1}`, 'while :; do', '  forge_taken=0', '  for forge_previous in "${forge_reserved[@]}"; do [ "$forge_previous" = "$forge_output" ] && forge_taken=1; done', '  if [ ! -e "$forge_output" ] && [ "$forge_taken" -eq 0 ]; then break; fi');
-      if (numbered) { lines.push(`  forge_suffix=$(printf '%0${width}d' "$forge_number")`, `  forge_output=${posixQuote(base)}"$forge_suffix"${posixQuote(extension(task.output))}`); }
-      else { lines.push(`  forge_output=${posixQuote(base + '~')}"$forge_number"${posixQuote(extension(task.output))}`); }
-      lines.push('  forge_number=$((forge_number + 1))', 'done', 'forge_reserved+=("$forge_output")');
+      const numbered = task.naming >= 11, pathStem = withoutExtension(task.output);
+      const { base: numberedBase, digits } = splitTrailingSerial(pathStem);
+      const base = numbered ? numberedBase : pathStem.replace(/~\d+$/, '') + '~';
+      const width = Math.max(task.naming === 11 ? 2 : 3, digits.length);
+      const start = numbered ? (digits || '1').padStart(width, '0') : '1';
+      lines.push(`forge_number=${start}`, 'while :; do', '  forge_taken=0', '  for forge_previous in "${forge_reserved[@]}"; do [ "$forge_previous" = "$forge_output" ] && forge_taken=1; done', '  if [ ! -e "$forge_output" ] && [ "$forge_taken" -eq 0 ]; then break; fi');
+      lines.push(`  forge_output=${posixQuote(base)}"$forge_number"${posixQuote(extension(task.output))}`);
+      lines.push(numbered ? '  forge_number=$(forge_increment_serial "$forge_number")' : '  forge_number=$((forge_number + 1))', 'done', 'forge_reserved+=("$forge_output")');
     }
     if (usesOutput) { lines.push('printf \'输出：%s\n\' "$forge_output"'); }
     for (const asset of task.assets) { lines.push(`printf '%s' ${posixQuote(asset.content)} > ${posixQuote(asset.path)}${fail}`); }

@@ -4,6 +4,36 @@ export const extension = (p: string) => { const n = filename(p); return n.includ
 export const stem = (p: string) => { const n = filename(p); return n.includes('.') ? n.slice(0, n.lastIndexOf('.')) : n; };
 export const withoutExtension = (p: string) => dirname(p) + stem(p);
 export function join(dir: string, name: string, style = dir): string { return dir ? dir.replace(/[\\/]+$/, '') + (style.includes('\\') ? '\\' : '/') + name : name; }
+export function splitTrailingSerial(value: string): { base: string; digits: string } {
+  const digits = value.match(/\d+$/)?.[0] ?? '';
+  return { base: value.slice(0, value.length - digits.length), digits };
+}
+
+export function relativeSubdirectory(directory: string, root: string, cwd: string, windows: boolean): string {
+  const separators = (value: string) => windows ? value.replaceAll('\\', '/') : value;
+  const volumePattern = windows ? /^(?:\/\/(?:\?\/UNC\/)?[^/]+\/[^/]+(?:\/|$)|[a-z]:\/|\/)/i : /^\//;
+  const normalize = (value: string) => {
+    let path = separators(value.trim());
+    if (cwd && !volumePattern.test(path)) { path = join(separators(cwd), path, '/'); }
+    const volume = path.match(volumePattern)?.[0] ?? '';
+    const parts: string[] = [];
+    for (const part of path.slice(volume.length).split('/')) {
+      if (!part || part === '.') { continue; }
+      if (part !== '..') { parts.push(part); }
+      else if (parts.length && parts.at(-1) !== '..') { parts.pop(); }
+      else if (!volume) { parts.push(part); }
+    }
+    return { volume: volume ? volume.replace(/\/?$/, '/') : '', parts };
+  };
+  // Compare normalized path components before using any suffix as an output subdirectory.
+  const source = normalize(directory), base = normalize(root);
+  const key = (value: string) => windows ? value.toLowerCase() : value;
+  if (key(source.volume) !== key(base.volume) || source.parts.length < base.parts.length) { return ''; }
+  if (base.parts.some((part, index) => key(part) !== key(source.parts[index]))) { return ''; }
+  const relative = source.parts.slice(base.parts.length);
+  return relative.includes('..') ? '' : relative.join(windows ? '\\' : '/');
+}
+
 export const isPlaceholder = (p: string) => /^<.*>$/.test(p);
 export const filterPath = (p: string) => isPlaceholder(p) ? p : p.startsWith('\\\\') ? '\\\\' + p.slice(2).replaceAll('\\', '\\\\') : /^[A-Za-z]:/.test(p) ? p[0] + '\\:' + p.slice(2).replaceAll('\\', '\\\\') : p.replaceAll('\\', '\\\\');
 export function substitute(text: string, input: string, output: string): string {

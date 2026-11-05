@@ -35,6 +35,12 @@ test('实际媒体验证三类 Windows 脚本、两遍编码、命名及文件�
   const doc = importPreset({ 输出容器: 'mkv', 输出_自动命名选项: '附加_递增数字', 视频参数_编码器_具体编码: 'copy', 音频参数_编码器_代号: 'audio.copy' }); const plan = await buildPlan(doc, c);
   writeFileSync(plan.tasks[0].output, 'existing'); execute(plan, dir);
   assert.equal(readFileSync(plan.tasks[0].output, 'utf8'), 'existing'); assert.ok(statSync(plan.tasks[0].output.replace('~1.mkv', '~2.mkv')).size > 100);
+  c.shell = 'powershell5';
+  const serialPlan = await buildPlan(importPreset({ ...doc.raw, 输出_自动命名选项: '附加_2位结尾序号', 输出命名_替代文本: 'clip20261106192344998' }), c);
+  const occupied = path.join(dir, 'clip20261106192344999.mkv');
+  assert.equal(serialPlan.tasks[0].output, occupied);
+  writeFileSync(occupied, 'existing'); execute(serialPlan, dir);
+  assert.equal(readFileSync(occupied, 'utf8'), 'existing'); assert.ok(statSync(path.join(dir, 'clip20261106192345000.mkv')).size > 100);
   const srt = path.join(dir, '字幕 test.srt'), chapters = path.join(dir, 'chapters.txt'), font = path.join(dir, 'font.ttf');
   writeFileSync(srt, '1\n00:00:00,000 --> 00:00:01,500\nHello subtitle\n');
   writeFileSync(chapters, ';FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1500\ntitle=First chapter\n'); writeFileSync(font, 'attachment bytes');

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { data, exportPreset, importPreset, patchPreset, schema } from '../src/preset';
 import { buildPlan, defaultContext } from '../src/plan';
 import { parseArguments, windowsQuote } from '../src/arguments';
-import { seconds } from '../src/paths';
+import { relativeSubdirectory, seconds } from '../src/paths';
 
 test('预设往返保留原始嵌套数据，未知内容阻断执行', async () => {
   const raw = { 预设文件版本: 6, 视频参数_比特率_控制方式: 3, 自定义扩展: { future: 'keep' }, 元数据_要写入的信息: [{ 字段: 'title', 值: '中文', 扩展: 'keep too' }] };
@@ -86,4 +86,27 @@ test('全部字段有界面分组，媒体探测与输入关联', async () => {
   const mapped = defaultContext(); mapped.platform = 'linux'; mapped.shell = 'bash'; mapped.inputs = [{ id: 'template', path: '/media/input$$.mp4' }]; mapped.pathMappings = [{ from: 'D:\\tpl', to: '/tmp/tpl' }]; mapped.resources['D:\\tpl\\a.avs'] = 'Source("<FilePath>")';
   const template = await buildPlan(importPreset({ 视频参数_视频帧服务器_使用AviSynth: true, 视频参数_视频帧服务器_avs脚本文件: 'D:\\tpl\\a.avs' }), mapped);
   assert.equal(template.status, 'ready', JSON.stringify(template.issues)); assert.equal(template.tasks[0].assets[0].content, 'Source("/media/input$$.mp4")');
+});
+
+test('保留子目录结构前规范化路径，长序号准确避让同批任务', async () => {
+  const context = defaultContext();
+  context.cwd = 'D:\\Media';
+  context.outputDirectory = 'D:\\Output';
+  context.inputs = [
+    { id: 'outside', path: 'source\\..\\outside\\clip.mp4' },
+    { id: 'inside', path: 'source\\temp\\..\\sub\\clip.mp4' }
+  ];
+  const directoryPreset = importPreset({ 输出容器: 'mkv', 输出_自动命名选项: 0, 输出位置_保留子文件夹结构起始点: 'source' });
+  const directoryPlan = await buildPlan(directoryPreset, context);
+  assert.equal(directoryPlan.status, 'ready', JSON.stringify(directoryPlan.issues));
+  assert.deepEqual(directoryPlan.tasks.map(task => task.output), ['D:\\Output\\clip.mkv', 'D:\\Output\\sub\\clip.mkv']);
+  assert.equal(relativeSubdirectory('\\\\Server\\Share\\source\\temp\\..\\Sub', '\\\\server\\share\\Source', '', true), 'Sub');
+  assert.equal(relativeSubdirectory('/media/source/../outside', '/media/source', '', false), '');
+
+  context.inputs = [{ id: 'serial-1', path: 'clip20261106192345000.mp4' }];
+  const serialPreset = importPreset({ 输出容器: 'mkv', 输出_自动命名选项: '附加_2位结尾序号' });
+  assert.equal((await buildPlan(serialPreset, context)).tasks[0].output, 'D:\\Output\\clip20261106192345001.mkv');
+  context.inputs.push({ id: 'serial-2', path: context.inputs[0].path });
+  const serialPlan = await buildPlan(serialPreset, context);
+  assert.deepEqual(serialPlan.tasks.map(task => task.output), ['D:\\Output\\clip20261106192345001.mkv', 'D:\\Output\\clip20261106192345002.mkv']);
 });

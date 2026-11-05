@@ -5,7 +5,7 @@ import { buildGraph } from './graph';
 import { audioCodec, encode, twoPass, videoCodec } from './codecs';
 import { extraOutputs } from './extra';
 import { add, parseArguments, raw } from './arguments';
-import { dirname, extension, filename, filterPath, formatSeconds, join, seconds, stem, substitute, withoutExtension } from './paths';
+import { dirname, extension, filename, filterPath, formatSeconds, join, relativeSubdirectory, seconds, splitTrailingSerial, stem, substitute, withoutExtension } from './paths';
 
 export function defaultContext(): ExecutionContext {
   const now = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
@@ -53,9 +53,22 @@ function nameFor(a: Preset, input: string, c: ExecutionContext, taskId: string):
 }
 function uniqueOutput(base: string, ext: string, mode: number, used: Set<string>, platform: string): string {
   const key = (s: string) => platform === 'windows' ? s.toLowerCase() : s;
-  let candidate = base + ext, i = 1;
-  if ([11, 12].includes(mode)) { const trailing = base.match(/\d+$/)?.[0] || ''; const width = Math.max(mode === 11 ? 2 : 3, trailing.length); i = trailing ? Number(trailing) + 1 : 1; base = base.slice(0, base.length - trailing.length); candidate = base + String(i).padStart(width, '0') + ext; while (used.has(key(candidate))) { candidate = base + String(++i).padStart(width, '0') + ext; } }
-  else if ([1, 2].includes(mode)) { const name = base.replace(/~\d+$/, ''); while (used.has(key(candidate))) { candidate = name + '~' + i++ + ext; } }
+  let candidate = base + ext;
+  if ([11, 12].includes(mode)) {
+    const { base: name, digits } = splitTrailingSerial(base);
+    const width = Math.max(mode === 11 ? 2 : 3, digits.length);
+    const previous = BigInt(digits || '0');
+    // 3FUI reads the existing suffix as a signed 64-bit integer.
+    let serial = previous < 9223372036854775807n ? previous + 1n : 1n;
+    do {
+      candidate = name + serial.toString().padStart(width, '0') + ext;
+      serial++;
+    } while (used.has(key(candidate)));
+  } else if ([1, 2].includes(mode)) {
+    const name = base.replace(/~\d+$/, '');
+    let serial = 1;
+    while (used.has(key(candidate))) { candidate = name + '~' + serial++ + ext; }
+  }
   used.add(key(candidate)); return candidate;
 }
 async function passlog(input: string, output: string, c: ExecutionContext): Promise<string> {
@@ -96,13 +109,12 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext):
     const ext = a.输出容器.trim().replace(/^\./, '') || extension(input).slice(1);
     const noOutput = a.输出_输出文件参数使用方法 !== 0 || a.自定义参数_完全自己写.trim();
     if (!ext && !noOutput) { problem('missing', '请设置输出容器或指定带后缀的输出文件'); }
-    let dir = c.outputDirectory || a.输出位置 || a.输出目录 || dirname(input);
-    if (a.输出位置_保留子文件夹结构起始点) {
-      const root = a.输出位置_保留子文件夹结构起始点.replace(/[\\/]+$/, '');
-      const sourceDir = dirname(input).replace(/[\\/]+$/, '');
-      const normalize = (s: string) => c.platform === 'windows' ? s.toLowerCase().replaceAll('\\', '/') : s;
-      if (normalize(sourceDir).startsWith(normalize(root) + '/')) { dir = join(dir, sourceDir.slice(root.length + 1), c.platform === 'windows' ? '\\' : '/'); }
-      else if (normalize(sourceDir) !== normalize(root)) { problem('missing', `输入文件不在保留目录结构的起始目录内：${input}`); }
+    const inputDirectory = dirname(input), customDirectory = c.outputDirectory || a.输出位置 || a.输出目录;
+    let dir = customDirectory || inputDirectory;
+    if (customDirectory && a.输出位置_保留子文件夹结构起始点.trim()) {
+      const windows = c.platform === 'windows';
+      const relative = relativeSubdirectory(inputDirectory, a.输出位置_保留子文件夹结构起始点, c.cwd, windows);
+      if (relative) { dir = join(dir, relative, windows ? '\\' : '/'); }
     }
     dir = mapPath(dir, c);
     if (c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(dir)) { problem('missing', '输出目录仍是 Windows 路径，请显式映射到目标系统'); }
