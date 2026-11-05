@@ -4,9 +4,7 @@
 
 ## 在线使用
 
-访问 [FFmpeg Command Forge 在线版](https://ffmpeg-command-forge.soft-alder-6352.chatgpt.site/)。Sites 站点默认仅所有者可访问，共享范围可在 Sites 中管理。网页在浏览器中生成命令，FFmpeg 仍需在本机终端执行。
-
-Sites 使用 `.openai/hosting.json` 声明的 `dist` 目录作为静态资源。更新站点时，先构建并同步源码，再通过 Sites 保存版本并发布。
+访问 [FFmpeg Command Forge 在线版](https://ffmpeg-command-forge.com/)。网页在浏览器中生成命令，FFmpeg 仍需在本机终端执行。
 
 推送到 `main` 后，GitHub Actions 自动执行类型检查和单文件构建，将 `dist/index.html` 发布到 GitHub Pages。首次配置或迁移仓库时，在 Settings → Pages 中将 Source 设为 GitHub Actions；也可在 Actions 中手动运行“部署 GitHub Pages”。
 
