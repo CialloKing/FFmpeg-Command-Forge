@@ -121,13 +121,29 @@ function parameterField(key: string, spec: Schema, value: any, path: (string | n
     const name = typeof value === 'number' ? Object.keys(spec.values!).find(k => spec.values![k] === value) || String(value) : String(value);
     const options = Object.keys(spec.values!).map(k => [k, k.replaceAll('_', ' ')] as [string, string]); if (!Object.hasOwn(spec.values!, name)) { options.unshift([name, '未知：' + name]); }
     input = selectInput(options, name, v => edit(path, v));
+  } else if (key === '音频参数_编码器_代号') {
+    const current = String(value ?? '');
+    const knownId = data.audio.find(codec => codec.私有ID.toLowerCase() === current.toLowerCase())?.私有ID;
+    const options: [string, string][] = data.audio.map(codec => [codec.私有ID, `${codec.显示名称}（${codec.私有ID}）`]);
+    options.unshift(['', '未设置']);
+    // 保留未知的导入值，避免下拉框将无法生成命令的预设误显示为未设置。
+    if (current && !knownId) { options.unshift([current, '未知：' + current]); }
+    input = selectInput(options, knownId ?? current, v => edit(path, v));
   } else if (/自定义参数|自己写滤镜|进阶参数集/.test(key)) {
     input = el('textarea', 'mono'); input.value = value ?? ''; input.onchange = () => edit(path, (input as HTMLTextAreaElement).value);
   } else {
     input = textInput(String(value ?? ''), v => edit(path, spec.kind === 'number' ? Number(v || 0) : v));
     if (spec.kind === 'number') { input.type = 'number'; input.step = 'any'; }
-    const choices = key === '视频参数_编码器_具体编码' ? Object.keys(data.video) : key === '音频参数_编码器_代号' ? data.audio.map(x => x.私有ID) : key === '输出容器' ? ['mp4', 'mkv', 'webm', 'mov', 'mp3', 'flac', 'wav', 'opus', 'png'] : [];
-    if (choices.length) { const id = 'choices-' + key; let list = document.getElementById(id); if (!list) { list = el('datalist'); list.id = id; for (const choice of choices) { const o = el('option'); o.value = choice; if (key === '音频参数_编码器_代号') { o.label = data.audio.find(x => x.私有ID === choice)?.显示名称 || choice; } list.append(o); } document.body.append(list); } input.setAttribute('list', id); }
+    const choices = key === '视频参数_编码器_具体编码' ? Object.keys(data.video) : key === '输出容器' ? ['mp4', 'mkv', 'webm', 'mov', 'mp3', 'flac', 'wav', 'opus', 'png'] : [];
+    if (choices.length) {
+      const id = 'choices-' + key;
+      if (!document.getElementById(id)) {
+        const list = el('datalist'); list.id = id;
+        for (const choice of choices) { const option = el('option'); option.value = choice; list.append(option); }
+        document.body.append(list);
+      }
+      input.setAttribute('list', id);
+    }
   }
   const field = labeled(label, input, hint, /自定义参数|自己写滤镜|进阶参数集/.test(key));
   if (/^(视频参数_视频帧服务器_)(avs|vpy)脚本文件$/.test(key)) { field.append(button('导入模板内容', () => pick('.avs,.vpy,.py,.txt', async f => { const path = String(doc.normalized[key] || f.name); if (!doc.normalized[key]) { edit([key], f.name); } context.resources[path] = await f.text(); schedule(); toast('已导入模板：' + f.name); }), 'small')); }
