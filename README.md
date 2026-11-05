@@ -70,6 +70,18 @@ npm run build
 
 仓库包含 Windows/Linux/macOS 检查工作流；本地新增工作流不代表已经完成远端运行。
 
+## Star 历史
+
+GitHub Actions 每天更新 `star-history` 分支中的 Star 数量历史。
+
+<p align="center">
+  <a href="https://github.com/CialloKing/FFmpeg-Command-Forge/blob/star-history/stars.csv">
+    <img src="https://raw.githubusercontent.com/CialloKing/FFmpeg-Command-Forge/refs/heads/star-history/star-history.svg" alt="FFmpeg Command Forge Star 数量历史图" width="960">
+  </a>
+</p>
+
+[查看 CSV 原始数据](https://github.com/CialloKing/FFmpeg-Command-Forge/blob/star-history/stars.csv)。开始每日采集后，CSV 只保留实际采集到的日期。
+
 ## 许可
 
 项目采用 MIT 许可。移植的 FFmpegFreeUI 逻辑与数据保留 1059 Studio 的版权和许可；HTML 同时包含 fflate 及相关许可文本。详见 [第三方说明](docs/THIRD-PARTY-NOTICES.md)。

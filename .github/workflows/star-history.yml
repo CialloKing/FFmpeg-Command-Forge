@@ -1,0 +1,57 @@
+name: 更新 Star 历史
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+      timezone: 'Asia/Shanghai'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: star-history
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # 固定从主分支读取更新脚本，数据分支只存放生成结果。
+      - name: 检出更新脚本
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: source
+          persist-credentials: false
+
+      - name: 检出 Star 历史
+        uses: actions/checkout@v4
+        with:
+          ref: star-history
+          path: history
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 采集 Star 数量
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node source/tools/update-star-history.mjs --data-dir history
+
+      - name: 提交并推送历史数据
+        working-directory: history
+        run: |
+          git add -- README.md stars.csv star-history.svg
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+
+          record_date=$(tail -n 1 stars.csv | cut -d, -f1)
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "记录 ${record_date} Star 数量"
+          git push origin HEAD:refs/heads/star-history
