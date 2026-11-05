@@ -18,7 +18,7 @@ test('预设往返保留原始嵌套数据，未知内容阻断执行', async ()
 });
 
 test('原版参数与 TypeScript 执行计划保持一致', async () => {
-  const cases: { name: string; preset: any; duration?: string }[] = [
+  const cases: { name: string; preset: any; duration?: string; input?: string }[] = [
     { name: 'default', preset: {} },
     ...data.builtins.map(x => ({ name: x.名称, preset: x.数据 })),
     { name: 'x264 audio metadata', preset: { 视频参数_编码器_具体编码: 'libx264', 视频参数_编码器_类型: '视频', 视频参数_编码器_编码预设: 'slow', 视频参数_比特率_控制方式: 'CRF', 视频参数_质量控制_值: '23', 音频参数_编码器_代号: 'aac.nmr', 音频参数_比特率: '128k', 元数据_要写入的信息: [{ 字段: 'title', 值: '中文 "标题"' }] } },
@@ -31,7 +31,10 @@ test('原版参数与 TypeScript 执行计划保持一致', async () => {
     { name: 'trim', preset: { 剪辑区间_方法: 'Trim滤镜', 剪辑区间_入点: '00:00:01', 剪辑区间_出点: '00:00:02', 音频参数_编码器_代号: 'aac.native' } },
     { name: 'TimeSpan compatibility', preset: { 剪辑区间_方法: 'Trim滤镜', 剪辑区间_入点: '1:2:.3', 剪辑区间_出点: '1:2:03.0001234567' } },
     { name: 'remove middle', duration: '30.0', preset: { 剪辑区间_方法: '剔除中间', 剪辑区间_入点: '00:00:01', 剪辑区间_出点: '00:00:02', 音频参数_编码器_代号: 'aac.native' } },
-    { name: 'full custom', preset: { 自定义参数_完全自己写: '-i "<InputFile>" -metadata title="a & b" "<OutputFile>"' } }
+    { name: 'full custom', preset: { 自定义参数_完全自己写: '-i "<InputFile>" -metadata title="a & b" "<OutputFile>"' } },
+    { name: 'quoted custom directory and literal dollar', input: 'D:\\素材\\cash$$.mp4', preset: { 自定义参数_完全自己写: '-i "<InputFile>" -metadata "comment=<InputFilePath>" "<OutputFile>"' } },
+    { name: 'filter directory placeholder', preset: { 自定义参数_完全自己写: '-i "<InputFile>" -vf "subtitles=<\\InputFilePath>\\captions.srt" "<OutputFile>"' } },
+    ...['crf', '1'].map(value => ({ name: 'enum string/' + value, preset: { 视频参数_编码器_具体编码: 'libx264', 视频参数_比特率_控制方式: value, 视频参数_质量控制_值: '23' } }))
   ];
   for (const key of ['视频参数_降噪_方式', '视频参数_锐化_方式', '视频参数_胶片颗粒_方式', '视频参数_平滑断层_方式', '视频参数_处理扫描方式', '视频参数_画面翻转_角度翻转', '视频参数_画面翻转_镜像翻转']) {
     for (const [name, n] of Object.entries(schema.fields![key].values!)) { if (n) { cases.push({ name: key + '/' + name, preset: { [key]: name } }); } }
@@ -45,12 +48,13 @@ test('原版参数与 TypeScript 执行计划保持一致', async () => {
   for (const name of Object.keys(data.video)) { cases.push({ name: 'video catalog/' + name, preset: { 视频参数_编码器_具体编码: name, 视频参数_编码器_编码预设: 'fast', 视频参数_编码器_配置文件: 'main', 视频参数_编码器_场景优化: 'film', 视频参数_编码器_图片编码器质量值: '2' } }); }
   for (const audio of data.audio) { cases.push({ name: 'audio catalog/' + audio.私有ID, preset: { 音频参数_编码器_代号: audio.私有ID, 音频参数_质量参数名: 'q:a', 音频参数_质量值: '2' } }); }
   const input = 'D:\\素材\\视频 test.mp4', output = 'D:\\输出\\result.mkv';
-  const requests = cases.map(x => ({ preset: x.preset, input, output, duration: x.duration || '' }));
+  const requests = cases.map(x => ({ preset: x.preset, input: x.input ?? input, output, duration: x.duration || '' }));
   const oracle = spawnSync('dotnet', ['tools/oracle/bin/Debug/net10.0/Oracle.dll'], { input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', maxBuffer: 8e6 });
   assert.equal(oracle.status, 0, oracle.stderr);
   const results = oracle.stdout.trim().split(/\r?\n/).map(x => JSON.parse(x));
   for (let i = 0; i < cases.length; i++) {
-    const context = defaultContext(); context.inputs = [{ id: 'test', path: input, output, probe: { path: input, data: { format: { duration: cases[i].duration || '30.0' }, streams: [] } } }];
+    const sampleInput = requests[i].input;
+    const context = defaultContext(); context.inputs = [{ id: 'test', path: sampleInput, output, probe: { path: sampleInput, data: { format: { duration: cases[i].duration || '30.0' }, streams: [] } } }];
     const plan = await buildPlan(importPreset(cases[i].preset), context);
     assert.equal(results[i].error, undefined, cases[i].name);
     assert.equal(plan.tasks[0].stages.length, results[i].length, cases[i].name);
@@ -79,7 +83,7 @@ test('全部字段有界面分组，媒体探测与输入关联', async () => {
   const c = defaultContext(); c.inputs = [{ id: 'one', path: 'new.mp4', probe: { path: 'old.mp4', data: { format: { duration: '10' } } } }];
   const p = await buildPlan(importPreset({ 剪辑区间_方法: '剔除中间', 剪辑区间_入点: '00:00:01' }), c);
   assert.equal(p.status, 'missing'); assert.ok(p.issues.some(x => x.message.includes('ffprobe')));
-  const mapped = defaultContext(); mapped.platform = 'linux'; mapped.shell = 'bash'; mapped.inputs = [{ id: 'template', path: '/media/input.mp4' }]; mapped.pathMappings = [{ from: 'D:\\tpl', to: '/tmp/tpl' }]; mapped.resources['D:\\tpl\\a.avs'] = 'Source("<FilePath>")';
+  const mapped = defaultContext(); mapped.platform = 'linux'; mapped.shell = 'bash'; mapped.inputs = [{ id: 'template', path: '/media/input$$.mp4' }]; mapped.pathMappings = [{ from: 'D:\\tpl', to: '/tmp/tpl' }]; mapped.resources['D:\\tpl\\a.avs'] = 'Source("<FilePath>")';
   const template = await buildPlan(importPreset({ 视频参数_视频帧服务器_使用AviSynth: true, 视频参数_视频帧服务器_avs脚本文件: 'D:\\tpl\\a.avs' }), mapped);
-  assert.equal(template.status, 'ready', JSON.stringify(template.issues)); assert.match(template.tasks[0].assets[0].content, /\/media\/input.mp4/);
+  assert.equal(template.status, 'ready', JSON.stringify(template.issues)); assert.equal(template.tasks[0].assets[0].content, 'Source("/media/input$$.mp4")');
 });

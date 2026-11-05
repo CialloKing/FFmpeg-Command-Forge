@@ -138,7 +138,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext):
         const content = c.resources[template] ?? c.resources[filename(template)];
         if (!template || content === undefined) { problem('missing', `${kind}：请导入脚本模板文件`); }
         const scriptPath = withoutExtension(input) + '.' + task.id.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') + (kind === 'AviSynth' ? '.avs' : extension(template) || '.vpy');
-        assets.push({ path: scriptPath, content: (content || '').replaceAll('<FilePath>', input) });
+        assets.push({ path: scriptPath, content: (content || '').replaceAll('<FilePath>', () => input) });
         if (mainInput === input) { mainInput = scriptPath; vapour = kind === 'VapourSynth'; }
       }
     }

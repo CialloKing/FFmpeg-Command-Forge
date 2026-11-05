@@ -10,10 +10,17 @@ function normalize(value: any, spec: Schema, fallback: any, path: string, issues
   if (fallback === undefined) { fallback = spec.defaults; }
   if (value === undefined || value === null) { value = fallback ?? (spec.kind === 'object' ? {} : spec.kind === 'array' ? [] : spec.kind === 'boolean' ? false : spec.kind === 'number' ? 0 : spec.kind === 'enum' ? 0 : ''); }
   if (spec.kind === 'enum') {
-    let n = typeof value === 'number' ? value : spec.values?.[value];
+    const values = Object.entries(spec.values ?? {});
+    let n: number | undefined;
+    if (typeof value === 'number') { n = value; }
+    else if (typeof value === 'string') {
+      // JsonStringEnumConverter accepts case-insensitive names and integer strings.
+      const name = value.trim().toLowerCase();
+      n = /^[+-]?\d+$/.test(name) ? Number(name) : values.find(([key]) => key.toLowerCase() === name)?.[1];
+    }
     // v6 retains this legacy VBR enum value even though it is absent from Enum.GetNames.
-    if (path === '视频参数_比特率_控制方式' && (value === 3 || value === '3')) { n = 2; }
-    if (n === undefined || !Object.values(spec.values || {}).includes(n)) {
+    if (path === '视频参数_比特率_控制方式' && n === 3) { n = 2; }
+    if (n === undefined || !values.some(([, known]) => known === n)) {
       issues.push({ level: 'error', field: path, message: `${path}：未知枚举 ${String(value)}` }); return 0;
     }
     return n;

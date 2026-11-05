@@ -7,13 +7,30 @@ export function join(dir: string, name: string, style = dir): string { return di
 export const isPlaceholder = (p: string) => /^<.*>$/.test(p);
 export const filterPath = (p: string) => isPlaceholder(p) ? p : p.startsWith('\\\\') ? '\\\\' + p.slice(2).replaceAll('\\', '\\\\') : /^[A-Za-z]:/.test(p) ? p[0] + '\\:' + p.slice(2).replaceAll('\\', '\\\\') : p.replaceAll('\\', '\\\\');
 export function substitute(text: string, input: string, output: string): string {
+  const preview = ['<输入文件>', '<InputFile>'].includes(input.trim());
+  const directory = dirname(input);
+  // The original directory placeholder omits the last separator except at a root.
+  const folder = directory.length > 1 ? directory.slice(0, -1) : directory;
+  const name = filename(input);
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  let inputWithoutExtension = base;
+  if (folder && base) {
+    const style = input.includes('\\') || !input.includes('/') ? '\\' : '/';
+    inputWithoutExtension = /[\\/]$/.test(folder) ? folder + base : join(folder, base, style);
+  }
   const replacement: Record<string, string> = {
-    '<\\InputFileWithOutExtension>': filterPath(withoutExtension(input)), '<\\InputFilePath>': filterPath(dirname(input)),
-    '<InputFileWithOutExtension>': withoutExtension(input), '<InputFileNameWithOutExtension>': stem(input),
-    '<InputFilePath>': dirname(input), '<InputFileName>': filename(input), '<InputFile>': input,
+    '<\\InputFileWithOutExtension>': preview ? '<\\InputFileWithOutExtension>' : filterPath(inputWithoutExtension),
+    '<\\InputFilePath>': preview ? '<\\InputFilePath>' : filterPath(folder),
+    '<InputFileWithOutExtension>': preview ? '<InputFileWithOutExtension>' : inputWithoutExtension,
+    '<InputFileNameWithOutExtension>': preview ? '<InputFileNameWithOutExtension>' : base,
+    '<InputFilePath>': preview ? '<InputFilePath>' : folder,
+    '<InputFileName>': preview ? '<InputFileName>' : name,
+    '<InputFile>': input,
     '<OutputFile>': output, '<输入文件>': input, '<输出文件>': output
   };
-  for (const [key, value] of Object.entries(replacement)) { text = text.replaceAll(key, value); }
+  // A replacement callback keeps literal $ sequences in paths, as .NET String.Replace does.
+  for (const [key, value] of Object.entries(replacement)) { text = text.replaceAll(key, () => value); }
   return text;
 }
 // Match .NET TimeSpan.TryParse before Double.TryParse, including its bare-integer day syntax.
