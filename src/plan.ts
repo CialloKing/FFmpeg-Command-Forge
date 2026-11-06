@@ -5,7 +5,7 @@ import { buildGraph, summarizeStreams } from './graph';
 import { audioCodec, encode, twoPass, videoCodec } from './codecs';
 import { extraOutputs } from './extra';
 import { add, parseArguments, raw } from './arguments';
-import { dirname, extension, filename, filterOptionValue, filterPath, formatSeconds, isAbsolute, isPlaceholder, isProtocol, join, pathKey, relativeSubdirectory, seconds, splitTrailingSerial, stem, substitute, windowsAbsolute, withoutExtension } from './paths';
+import { dirname, extension, filename, filterOptionValue, filterPath, formatSeconds, isAbsolute, isPlaceholder, isPresetPathField, isProtocol, join, pathKey, relativeSubdirectory, seconds, splitTrailingSerial, stem, substitute, windowsAbsolute, withoutExtension } from './paths';
 import { sourceText, type Translate } from './i18n';
 
 export function defaultContext(): ExecutionContext {
@@ -40,6 +40,10 @@ function resolvePath(path: string, c: ExecutionContext): string {
 
 export function resolvedInput(task: InputTask, c: ExecutionContext): string {
   return resolvePath(mapPath(task.path.trim(), c), { ...c, cwd: mapPath(c.cwd, c) });
+}
+export function associatedProbe(task: InputTask, resolvedPath: string) {
+  const probe = task.probe;
+  return probe?.path === task.path && (probe.resolvedPath ?? task.path) === resolvedPath ? probe.data : undefined;
 }
 export function probeStage(input: string, taskId: string, c: ExecutionContext, t: Translate = sourceText): CommandStage { return { name: t('探测媒体信息'), kind: 'probe', executable: c.ffprobe, args: ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', input], graph: '', maps: [], taskId }; }
 function clip(a: Preset): { before: string[]; after: string[] } {
@@ -118,7 +122,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   // Map only explicitly declared resource paths. The original imported JSON remains untouched.
   const mapResources = (obj: Preset) => {
     for (const [k, v] of Object.entries(obj)) {
-      if (typeof v === 'string' && /文件路径|文件夹|脚本文件|输出位置|^输出目录$/.test(k) && v) {
+      if (typeof v === 'string' && isPresetPathField(k) && v) {
         const mapped = mapPath(v, c);
         obj[k] = resolvePath(mapped, c);
         if ((windowsAbsolute(v) || v.startsWith('/')) && mapped === v && (!c.confirmedPaths.includes(v) || c.platform !== 'windows' && windowsAbsolute(v))) {
@@ -189,7 +193,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
       const actualExt = extension(output).toLowerCase(), matroska = ['.mkv', '.mka', '.mks', '.mk3d'].includes(actualExt), cover = matroska || ['.mp4', '.m4v', '.m4a', '.mov', '.3gp', '.3g2'].includes(actualExt);
       for (const item of a.附件_要写入的附件) { if (!item.类型) { continue; } if (!item.文件路径.trim()) { problem('missing', t('附件已选择类型，请补充文件路径')); } else if (item.类型 === 2 ? !cover : !matroska) { problem('error', t('输出容器无法保存该附件：{0}', item.文件路径)); } else if (item.类型 === 2 && a.流控制_启用保留其他视频流 && !videoCodec(a)?.是否禁用) { problem('error', t('附加封面图需要确定输出视频数量；请使用明确的视频流选择并关闭“保留其他视频流”')); } }
     }
-    const probe = task.probe?.path === task.path && (task.probe.resolvedPath ?? task.path) === input ? task.probe.data : undefined;
+    const probe = associatedProbe(task, input);
     probes.push(probeStage(input, task.id, c, t));
     if (!custom && [5, 6].includes(a.剪辑区间_方法) && (probe?.format?.duration === undefined || probe?.format?.duration === null || probe?.format?.duration === '' || !Number.isFinite(Number(probe?.format?.duration)))) { problem('missing', t('{0}：此剪辑方式需要导入 ffprobe 时长信息', filename(input))); }
     const external = task.subtitle ? executionPath(task.subtitle) : undefined;

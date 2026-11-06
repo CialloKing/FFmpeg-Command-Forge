@@ -7,7 +7,12 @@ export type StreamSelection = 'mapped' | 'automatic' | 'omitted' | 'unknown';
 export type StreamSummary = Record<StreamType, StreamSelection>;
 export interface Issue { level: 'error' | 'missing' | 'info'; message: string; field?: string }
 export interface PresetDocument { raw: Preset; normalized: Preset; issues: Issue[] }
-export interface InputTask { id: string; path: string; output?: string; probe?: { path: string; resolvedPath?: string; data: any }; subtitle?: string; sidecars?: string[]; sidecarsConfirmed?: boolean }
+export interface ProbeData {
+  format?: { duration?: string | number | null; [key: string]: unknown };
+  streams?: Record<string, unknown>[];
+  [key: string]: unknown;
+}
+export interface InputTask { id: string; path: string; output?: string; probe?: { path: string; resolvedPath?: string; data: ProbeData }; subtitle?: string; sidecars?: string[]; sidecarsConfirmed?: boolean }
 export interface ExecutionContext {
   platform: Platform; shell: Shell; ffmpeg: string; ffprobe: string; cwd: string;
   outputDirectory: string; inputs: InputTask[]; pathMappings: { from: string; to: string }[];

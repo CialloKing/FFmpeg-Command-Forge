@@ -2,10 +2,11 @@ import { zipSync, strToU8 } from 'fflate';
 import { revision, version as upstreamVersion } from '../docs/upstream.json';
 import ffmpegFull from './data/ffmpeg-full-2026.11.3.json';
 import { blankValue, clone, data, exportPreset, groupFor, groups, importPreset, schema } from './preset';
-import { buildPlan, defaultContext, resolvedInput } from './plan';
+import { associatedProbe, buildPlan, defaultContext, resolvedInput } from './plan';
 import { downloadableScript, renderCommand, renderPlan } from './render';
 import { normalizeOrder, subtitleCandidates } from './filters';
-import { filename } from './paths';
+import { filename, isPresetPathField } from './paths';
+import { isProbeData, parseWorkspace } from './workspace';
 import { detectLocale, optionLabel, parameterLabel, presetText, translator, type Locale } from './i18n';
 import type { CommandPlan, ExecutionContext, InputTask, Preset, PresetDocument, RenderedPlan, Schema, Shell } from './types';
 
@@ -99,16 +100,23 @@ function cached(): void {
   try { localStorage.setItem(cacheKey, JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme })); }
   catch { /* Export remains available when browser storage is blocked or full. */ }
 }
-function loadWorkspace(input: any): void {
-  if (input?.format !== 'ffmpeg-command-forge/workspace' || input.version !== 1 || !Array.isArray(input.context?.inputs) || !input.context.inputs.every((t: any) => typeof t.id === 'string' && typeof t.path === 'string')) { throw new Error(t('工作区格式无效或版本不支持')); }
-  const defaults = defaultContext();
-  for (const key of ['platform', 'shell', 'ffmpeg', 'ffprobe', 'cwd', 'outputDirectory', 'clock', 'nonce']) { if (typeof input.context[key] !== 'string') { throw new Error(t('工作区执行环境字段无效：{0}', key)); } }
-  if (!['windows', 'macos', 'linux'].includes(input.context.platform) || !Object.hasOwn(labels, input.context.shell)) { throw new Error(t('工作区目标环境无效')); }
-  if (!Array.isArray(input.context.pathMappings) || !input.context.pathMappings.every((m: any) => typeof m.from === 'string' && typeof m.to === 'string') || !Array.isArray(input.context.confirmedPaths) || typeof input.context.resources !== 'object') { throw new Error(t('工作区资源映射格式无效')); }
-  replacePreset(input.preset); context = { ...defaults, ...input.context }; theme = input.theme === 'light' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme;
+function loadWorkspace(text: string): void {
+  // Validate the whole document before replacing the current workspace.
+  const workspace = parseWorkspace(JSON.parse(text.replace(/^\uFEFF/, '')), t);
+  doc = workspace.doc;
+  context = workspace.context;
+  theme = workspace.theme;
+  allowOverwrite = false;
+  document.documentElement.dataset.theme = theme;
 }
-try { const cachedText = localStorage.getItem(cacheKey); if (cachedText) { loadWorkspace(JSON.parse(cachedText)); } const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]'); if (Array.isArray(stored)) { library = stored.filter(x => typeof x.name === 'string' && x.preset && typeof x.preset === 'object'); } }
-catch { /* A malformed or unavailable cache must never prevent a fresh session. */ }
+try {
+  const text = localStorage.getItem(cacheKey);
+  if (text) { loadWorkspace(text); }
+} catch { /* A damaged workspace cache must not prevent a fresh session. */ }
+try {
+  const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]');
+  if (Array.isArray(stored)) { library = stored.filter(x => x && typeof x.name === 'string' && x.preset && typeof x.preset === 'object' && !Array.isArray(x.preset)); }
+} catch { /* Saved presets are independent of workspace recovery. */ }
 function edit(path: (string | number)[], value: any): void {
   const raw = clone(doc.raw); let target = raw;
   path.slice(0, -1).forEach((key, i) => { if (!target[key]) { target[key] = typeof path[i + 1] === 'number' ? [] : {}; } target = target[key]; });
@@ -126,6 +134,10 @@ async function recompute(): Promise<void> {
   try {
     const plan = await buildPlan(doc, context, t, allowOverwrite); if (id !== generation) { return; }
     currentPlan = plan; currentRendered = renderPlan(plan, t); renderOutput();
+    for (const detail of document.querySelectorAll<HTMLElement>('[data-probe-index]')) {
+      const index = Number(detail.dataset.probeIndex);
+      renderProbeDetail(detail, associatedProbe(context.inputs[index], plan.probes[index].args.at(-1)!));
+    }
   } catch (error) {
     if (id !== generation) { return; }
     currentPlan = undefined; currentRendered = undefined; $('#status-title').textContent = t('无法构建'); $('#status-caption').textContent = t('请检查参数或重新导入预设'); $('#command').textContent = String(error); $('#copy-final').setAttribute('disabled', '');
@@ -325,6 +337,10 @@ function filterOrder(): HTMLElement {
   });
   return box;
 }
+function renderProbeDetail(detail: HTMLElement, probe: ReturnType<typeof associatedProbe>): void {
+  detail.hidden = !probe;
+  detail.textContent = probe ? t('已关联此路径 · {0} 个流 · 时长 {1} 秒', probe.streams?.length ?? 0, probe.format?.duration ?? t('未知')) : '';
+}
 function environment(): HTMLElement {
   const content = el('div', 'stack');
   const card = el('div', 'card stack'), grid = el('div', 'grid2');
@@ -341,13 +357,15 @@ function environment(): HTMLElement {
   context.inputs.forEach((task, index) => {
     const block = el('div', 'input-task'), title = row(el('span', 'task-id', 'INPUT ' + String(index + 1).padStart(2, '0')), el('span', 'grow'), button(t('移除'), () => { context.inputs.splice(index, 1); schedule(); renderEditor(); }, 'small ghost'));
     const pathInput = textInput(task.path, v => { task.path = v; task.probe = undefined; task.sidecarsConfirmed = false; schedule(); }, t('输入媒体文件的真实路径')); pathInput.setAttribute('aria-label', t('输入文件 {0} 路径', index + 1));
-    pathInput.ondragover = e => e.preventDefault(); pathInput.ondrop = e => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f) { task.path = f.name; task.probe = undefined; schedule(); renderEditor(); toast(t('已取得文件名，请确认执行目录或补充真实路径')); } };
+    pathInput.ondragover = e => e.preventDefault(); pathInput.ondrop = e => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f) { task.path = f.name; task.probe = undefined; task.sidecarsConfirmed = false; schedule(); renderEditor(); toast(t('已取得文件名，请确认执行目录或补充真实路径')); } };
     block.append(title, labeled(t('输入路径'), pathInput), labeled(t('指定输出文件（可选）'), textInput(task.output || '', v => { task.output = v; schedule(); }), t('填写后覆盖本次自动命名')));
     const actions = el('div', 'row wrap');
-    const applyProbe = (text: string) => { const probe = JSON.parse(text.replace(/^\uFEFF/, '')); if (!probe || !Array.isArray(probe.streams) && !probe.format) { throw new Error(t('文件不是 ffprobe 的 JSON 输出')); } task.probe = { path: task.path, resolvedPath: resolvedInput(task, context), data: probe }; schedule(); renderEditor(); };
-    actions.append(button(task.probe?.path === task.path ? t('✓ 重新导入 ffprobe JSON') : t('导入 ffprobe JSON'), () => pick('.json', async f => applyProbe(await f.text())), 'small'), button(t('复制探测命令'), () => { const stage = currentPlan?.probes.find(s => s.taskId === task.id); if (stage) { void copy(renderCommand(stage, context.shell, false, t)); } }, 'small ghost'), button(t('粘贴探测结果'), () => openTextDialog(t('导入 ffprobe 结果'), '', text => applyProbe(text)), 'small ghost'));
+    const applyProbe = (text: string) => { const probe: unknown = JSON.parse(text.replace(/^\uFEFF/, '')); if (!isProbeData(probe)) { throw new Error(t('文件不是 ffprobe 的 JSON 输出')); } task.probe = { path: task.path, resolvedPath: resolvedInput(task, context), data: probe }; schedule(); renderEditor(); };
+    actions.append(button(t('导入 ffprobe JSON'), () => pick('.json', async f => applyProbe(await f.text())), 'small'), button(t('复制探测命令'), () => { const stage = currentPlan?.probes.find(s => s.taskId === task.id); if (stage) { void copy(renderCommand(stage, context.shell, false, t)); } }, 'small ghost'), button(t('粘贴探测结果'), () => openTextDialog(t('导入 ffprobe 结果'), '', text => applyProbe(text)), 'small ghost'));
     block.append(actions);
-    if (task.probe?.path === task.path) { const p = task.probe.data; block.append(el('small', '', t('已关联此路径 · {0} 个流 · 时长 {1} 秒', p.streams?.length ?? 0, p.format?.duration ?? t('未知')))); }
+    const probeDetail = el('small'); probeDetail.dataset.probeIndex = String(index);
+    renderProbeDetail(probeDetail, associatedProbe(task, resolvedInput(task, context)));
+    block.append(probeDetail);
     const a = doc.normalized;
     if (a.视频参数_烧录字幕_滤镜选择 && a.视频参数_烧录字幕_字幕来源是外部文件 === 1) {
       const input = textInput(task.subtitle || '', v => { task.subtitle = v; schedule(); }, t('实际字幕路径')); const candidates = subtitleCandidates(a, task.path.trim());
@@ -365,7 +383,7 @@ function environment(): HTMLElement {
   const mappingCard = el('div', 'card stack'), mappings = el('textarea', 'mono'); mappings.value = context.pathMappings.map(m => m.from + ' => ' + m.to).join('\n'); mappings.placeholder = t('例如 {0}', 'D:\\Media => /Volumes/Media'); mappings.onchange = () => { context.pathMappings = mappings.value.split(/\r?\n/).filter(x => x.includes('=>')).map(x => { const i = x.indexOf('=>'); return { from: x.slice(0, i).trim(), to: x.slice(i + 2).trim() }; }); schedule(); };
   mappingCard.append(labeled(t('显式路径映射'), mappings, t('每行一条“原目录 => 目标目录”，只转换确认过的前缀。')));
   mappingCard.append(button(t('确认预设中的路径用于当前环境'), () => {
-    const values: string[] = []; const visit = (o: Preset) => Object.entries(o).forEach(([k, v]) => { if (typeof v === 'string' && /文件路径|文件夹|脚本文件|输出位置/.test(k)) { values.push(v); } else if (v && typeof v === 'object') { if (Array.isArray(v)) { v.filter(x => x && typeof x === 'object').forEach(visit); } else { visit(v); } } }); visit(doc.normalized); context.confirmedPaths = [...new Set([...context.confirmedPaths, ...values])]; schedule(); toast(t('已确认当前预设中的资源路径'));
+    const values: string[] = []; const visit = (o: Preset) => Object.entries(o).forEach(([k, v]) => { if (typeof v === 'string' && isPresetPathField(k)) { values.push(v); } else if (v && typeof v === 'object') { if (Array.isArray(v)) { v.filter(x => x && typeof x === 'object').forEach(visit); } else { visit(v); } } }); visit(doc.normalized); context.confirmedPaths = [...new Set([...context.confirmedPaths, ...values])]; schedule(); toast(t('已确认当前预设中的资源路径'));
   }, 'small'));
   const resources = el('div', 'stack');
   for (const kind of ['avs', 'vpy']) {
@@ -522,7 +540,16 @@ function bindApp(): void {
   $('#theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; cached(); };
   $('#workspace').onclick = () => {
     const dialog = $<HTMLDialogElement>('#dialog'), body = $('#dialog-body'); $('#dialog-title').textContent = t('工作区'); body.replaceChildren();
-    const box = el('div', 'stack'); box.style.marginTop = '20px'; box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')), button(t('下载工作区'), () => save(JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }, null, 2), 'Forge-workspace.json', 'application/json')), button(t('导入工作区'), () => pick('.json', async f => { loadWorkspace(JSON.parse(await f.text())); schedule(); renderEditor(); renderNav(); dialog.close(); toast(t('工作区已恢复')); }))); body.append(box); dialog.showModal();
+    const box = el('div', 'stack'); box.style.marginTop = '20px';
+    const error = el('p', 'error-message'); error.setAttribute('role', 'alert'); error.hidden = true;
+    box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')),
+      button(t('下载工作区'), () => save(JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }, null, 2), 'Forge-workspace.json', 'application/json')),
+      button(t('导入工作区'), () => pick('.json', async file => {
+        try { loadWorkspace(await file.text()); }
+        catch (cause) { error.textContent = cause instanceof Error ? cause.message : String(cause); error.hidden = false; return; }
+        schedule(); renderEditor(); renderNav(); dialog.close(); toast(t('工作区已恢复'));
+      })), error);
+    body.append(box); dialog.showModal();
   };
   $('#copy-preview').onclick = () => { const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };
   $('#copy-final').onclick = () => { if (currentRendered) { void copy(currentRendered.script); } };

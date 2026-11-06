@@ -78,6 +78,22 @@ await page.screenshot({ path: '.cache/ui-mobile.png', fullPage: true });
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, '移动端不应横向溢出');
 await page.reload(); await page.getByLabel('输入文件 1 路径').waitFor(); assert.equal(await page.getByLabel('输入文件 1 路径').inputValue(), 'D:\\Media\\演示素材.mp4');
 assert.equal(await overwrite.isChecked(), false);
+await page.setViewportSize({ width: 1536, height: 1000 });
+const workspaceKey = 'ffmpeg-command-forge.workspace.v1';
+const savedWorkspace = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), workspaceKey);
+const malformedWorkspace = structuredClone(savedWorkspace);
+malformedWorkspace.context.inputs[0].sidecars = 'subtitle.srt';
+await page.getByRole('button', { name: '工作区', exact: true }).click();
+async function uploadWorkspace(workspace) {
+  const upload = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '导入工作区', exact: true }).click();
+  await (await upload).setFiles({ name: 'workspace.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(workspace)) });
+}
+await uploadWorkspace(malformedWorkspace);
+await page.getByRole('alert').getByText(/context\.inputs\[0\]\.sidecars/).waitFor();
+assert.equal(await page.getByLabel('输入文件 1 路径').inputValue(), savedWorkspace.context.inputs[0].path);
+await uploadWorkspace(savedWorkspace);
+await page.getByText('工作区已恢复', { exact: true }).waitFor();
 const future = { 预设文件版本: 6, 滤镜排序系统: [
   { 实例ID: 'one', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'hflip', 未知扩展: { keep: true } },
   { 实例ID: 'two', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'vflip' }
@@ -87,6 +103,11 @@ await page.getByRole('button', { name: '画面', exact: true }).click(); await p
 const futureDownload = page.waitForEvent('download'); await page.getByRole('button', { name: '导出预设', exact: true }).click(); await (await futureDownload).saveAs('.cache/browser-future.json');
 const futureExport = JSON.parse(await readFile('.cache/browser-future.json', 'utf8')); assert.deepEqual(futureExport.滤镜排序系统.find(x => x.实例ID === 'one').未知扩展, { keep: true });
 await page.waitForFunction(() => document.querySelector('#status-title').textContent === '不兼容'); assert.ok(await page.getByRole('button', { name: '复制最终脚本 ↗' }).isDisabled());
+malformedWorkspace.context.resources = null;
+await page.evaluate(({ key, workspace }) => localStorage.setItem(key, JSON.stringify(workspace)), { key: workspaceKey, workspace: malformedWorkspace });
+await page.reload();
+await page.getByLabel('输入文件 1 路径').waitFor();
+assert.equal(await page.getByLabel('输入文件 1 路径').inputValue(), '');
 assert.deepEqual(errors, []); assert.deepEqual(network, []);
 await context.close();
 const blocked = await browser.newContext({ locale: 'zh-CN' });

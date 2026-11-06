@@ -11,6 +11,7 @@ export function splitTrailingSerial(value: string): { base: string; digits: stri
 
 export const windowsAbsolute = (path: string) => /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(path);
 export const isProtocol = (path: string) => !/^[a-z]:/i.test(path) && /^[a-z][a-z0-9+.-]*:/i.test(path);
+export const isPresetPathField = (field: string) => /文件路径|文件夹|脚本文件|输出位置|^输出目录$/.test(field);
 export const isAbsolute = (path: string, windows: boolean) => windows ? windowsAbsolute(path) : path.startsWith('/');
 
 function pathParts(value: string, windows: boolean) {
