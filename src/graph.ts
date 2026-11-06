@@ -1,4 +1,4 @@
-import type { Preset, StreamSummary, StreamType } from './types';
+import type { Preset, ProbeData, StreamSummary, StreamType } from './types';
 import { audioCodec, audioExtra, videoCodec, videoExtra, type GraphResult } from './codecs';
 import { filterFragment } from './filters';
 import { formatSeconds, seconds, substitute, extension } from './paths';
@@ -7,23 +7,45 @@ export function streamList(values: string[], type: string): string[] { return [.
 export const optionalMap = (s: string) => s.replace(/\?+$/, '') + '?';
 export const selector = (s: string, type: string) => { const parts = s.replace(/\?+$/, '').split(':').filter(Boolean); return parts.at(-2)?.toLowerCase() === type && /^\d+$/.test(parts.at(-1)!) ? type + ':' + parts.at(-1) : type; };
 
-export function summarizeStreams(args: string[], unknown: boolean, subtitleInputs: ReadonlySet<number> = new Set()): StreamSummary {
+const streamCodes = new Map([['video', 'v'], ['audio', 'a'], ['subtitle', 's'], ['attachment', 't'], ['data', 'd']]);
+
+export function summarizeStreams(args: string[], unknown: boolean, subtitleInputs?: ReadonlySet<number>, probe?: ProbeData): StreamSummary {
   if (unknown) { return { v: 'unknown', a: 'unknown', s: 'unknown' }; }
   const maps = args.flatMap((value, i) => value === '-map' ? [args[i + 1]] : []);
-  const selected = new Set<StreamType>();
-  let ambiguous = false;
+  const source = probe?.streams?.every(stream => typeof stream.codec_type === 'string') ? probe.streams : undefined;
+  const kind = (stream: Record<string, unknown>) => streamCodes.get(String(stream.codec_type)) ?? '';
+  const sourceAudio = source?.some(stream => kind(stream) === 'a');
+  const selected = new Set<string>(), pending = new Set<string>();
+  let matched = false, ambiguous = false;
   for (const map of maps) {
-    const match = /^\d+:([vas])(?:[?:]|$)/.exec(map);
-    if (match) { selected.add(match[1] as StreamType); }
-    else if (/^\d+:0\?$/.test(map) && subtitleInputs.has(Number(map.split(':')[0]))) { selected.add('s'); }
-    else if (!/^-?\d+:t(?:[?:]|$)/.test(map)) { ambiguous = true; }
+    const selector = /^(\d+)(?::([vastd])(?::(\d+))?|:(\d+))?(\?)?$/.exec(map);
+    if (!selector) { ambiguous = true; continue; }
+    const [, input, type, ordinal, index, optional] = selector;
+    if (Number(input) !== 0 || !source || (index !== undefined && !source.every(stream => Number.isInteger(stream.index)))) {
+      const inferred = type || (index === '0' && subtitleInputs?.has(Number(input)) ? 's' : '');
+      if (inferred) { pending.add(inferred); }
+      else { ambiguous = true; }
+      continue;
+    }
+    let matches = index === undefined ? source.filter(stream => !type || kind(stream) === type) :
+      source.filter(stream => stream.index === Number(index));
+    if (ordinal !== undefined) { matches = matches.slice(Number(ordinal), Number(ordinal) + 1); }
+    if (!matches.length && !optional) { ambiguous = true; }
+    if (matches.length) { matched = true; }
+    for (const stream of matches) { selected.add(kind(stream)); }
   }
+  // An entirely ignored optional mapping is equivalent to leaving stream selection to FFmpeg.
+  const fallback = maps.length > 0 && maps.every(map => map?.endsWith('?')) && !matched
+    ? (pending.size || ambiguous ? 'possible' : 'confirmed')
+    : undefined;
   const status = (type: StreamType) => {
     if (args.includes('-' + type + 'n')) { return 'omitted'; }
-    if (!maps.length) { return 'automatic'; }
-    return ambiguous ? 'unknown' : selected.has(type) ? 'mapped' : 'omitted';
+    if (!maps.length || fallback === 'confirmed') { return 'automatic'; }
+    if (selected.has(type)) { return 'mapped'; }
+    if (pending.has(type)) { return 'pending'; }
+    return ambiguous || !matched && pending.size ? 'unknown' : 'omitted';
   };
-  return { v: status('v'), a: status('a'), s: status('s') };
+  return { v: status('v'), a: status('a'), s: status('s'), fallback, sourceAudio };
 }
 
 export function subtitleCodec(codec: string, a: Preset, output: string, auto = false): string {

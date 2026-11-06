@@ -453,11 +453,14 @@ function renderParameterList(): void {
 function renderStreams(plan: CommandPlan): void {
   const panel = $('#stream-summary');
   panel.replaceChildren();
-  const descriptions = { mapped: '显式映射', automatic: 'FFmpeg 自动选择', omitted: '未映射', unknown: '请查看参数' };
+  const descriptions = { mapped: '已确认匹配', pending: '映射待确认', automatic: 'FFmpeg 自动选择', omitted: '未映射', unknown: '请查看参数' };
   const rows = new Map<string, number>();
   for (const { streams } of plan.tasks) {
     if (!streams) { continue; }
-    const text = t('视频：{0} · 音频：{1} · 字幕：{2}', t(descriptions[streams.v]), t(descriptions[streams.a]), t(descriptions[streams.s]));
+    const selection = t('视频：{0} · 音频：{1} · 字幕：{2}', t(descriptions[streams.v]), t(descriptions[streams.a]), t(descriptions[streams.s]));
+    const hint = streams.fallback === 'possible' ? t('若可选映射均未匹配，FFmpeg 可能自动选择。') :
+      streams.fallback === 'confirmed' ? t('可选映射均未匹配，FFmpeg 将自动选择。') : '';
+    const text = hint ? selection + ' · ' + hint : selection;
     rows.set(text, (rows.get(text) ?? 0) + 1);
   }
   panel.hidden = !rows.size;
@@ -470,7 +473,7 @@ function renderStreams(plan: CommandPlan): void {
   const audioConfigured = a.流控制_启用保留其他音频流 || a.流控制_将音频参数应用于指定流.length ||
     a.滤镜排序系统.some((filter: Preset) => filter.滤镜目标流类型 === 2) ||
     Object.keys(schema.fields!).some(key => key.startsWith('音频参数_') && JSON.stringify(a[key]) !== JSON.stringify(data.defaults[key]));
-  if (!audioConfigured && plan.tasks.some(task => task.streams?.v === 'mapped' && task.streams.a === 'omitted')) {
+  if (!audioConfigured && plan.tasks.some(task => task.streams?.v === 'mapped' && task.streams.a === 'omitted' && task.streams.sourceAudio)) {
     panel.append(button(t('复制源音频'), () => {
       doc = readPreset({ ...doc.raw, 音频参数_编码器_代号: 'audio.copy', 流控制_启用保留其他音频流: true });
       schedule();

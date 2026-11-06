@@ -266,7 +266,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
         appendCustom(args, a.自定义参数_最后参数);
         graph = g.graph; maps = g.maps;
         if (phase !== 'pass1' && a.输出_输出文件参数使用方法 !== 2) {
-          streams = summarizeStreams(args, !!graph || customArguments || !managed, 'subtitleInputs' in extra ? extra.subtitleInputs : undefined);
+          streams = summarizeStreams(args, !!graph || customArguments || !managed, 'subtitleInputs' in extra ? extra.subtitleInputs : undefined, assets.length ? undefined : probe);
         }
       }
       const outputArgs: Record<number, string[]> = {};

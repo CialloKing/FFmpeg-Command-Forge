@@ -68,6 +68,17 @@ test('实际媒体验证三类 Windows 脚本、两遍编码、命名及文件�
   mkdirSync(fonts); burnContext.confirmedPaths = [fonts];
   const burned = await buildPlan(importPreset({ 视频参数_编码器_具体编码: 'libx264', 视频参数_编码器_编码预设: 'ultrafast', 音频参数_编码器_代号: 'audio.copy', 视频参数_烧录字幕_滤镜选择: 'subtitles', 视频参数_烧录字幕_字幕来源是外部文件: '外部字幕文件', 视频参数_烧录字幕_字体文件夹: fonts, 视频参数_烧录字幕_基本样式_名称: "Author's font" }), burnContext);
   execute(burned, dir); assert.ok(statSync(burned.tasks[0].output).size > 100);
+  const probe = JSON.parse(run('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', input]));
+  const check = defaultContext();
+  check.inputs = [{ id: 'optional', path: input, output: path.join(dir, 'optional.mkv') }];
+  const optional = importPreset({ 视频参数_编码器_具体编码: 'libx264', 流控制_将视频参数应用于指定流: ['9'] });
+  assert.equal((await buildPlan(optional, check)).tasks[0].streams?.fallback, 'possible');
+  check.inputs[0].probe = { path: input, data: probe };
+  const missed = await buildPlan(optional, check);
+  assert.equal(missed.tasks[0].streams?.fallback, 'confirmed');
+  execute(missed, dir);
+  const selection = JSON.parse(run('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', missed.tasks[0].output]));
+  assert.deepEqual(selection.streams.map((stream: { codec_type: string }) => stream.codec_type), ['video', 'audio']);
 });
 
 test('CMD 长批次通过任务包启动并保留调用目录', { skip: process.platform !== 'win32' }, async () => {
