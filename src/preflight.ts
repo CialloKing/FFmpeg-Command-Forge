@@ -94,28 +94,46 @@ export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
 export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
   const { sources, opaqueInputs, outputs } = batchPaths(plan);
   if (!outputs.length) { return []; }
+  const parents = new Map<string, number>();
+  const parentSlot = (path: string) => {
+    const parent = path.slice(0, path.lastIndexOf('/') + 1);
+    if (!parents.has(parent)) { parents.set(parent, parents.size); }
+    return parents.get(parent)!;
+  };
   const lines = [
-    // Use physical parent directories where possible to catch equivalent relative and absolute spellings.
+    'if [ -n "${ZSH_VERSION:-}" ]; then setopt KSH_ARRAYS; fi',
+    'cd -P -- . || exit 1',
+    'forge_cwd=$PWD',
+    'forge_physical=()',
+    // Cache physical parent directories, but keep lexical keys when a directory is yet to be created.
     'forge_key() {',
-    '  local rest=$1 part full= physical',
-    '  case "$rest" in /*) ;; *) rest="$(pwd -P)/$rest" ;; esac',
-    '  physical=$(cd -P -- "${rest%/*}/" 2>/dev/null && pwd -P) && rest="$physical/${rest##*/}"',
+    '  local rest=$1 slot=$2 part full= parent physical',
+    '  case "$rest" in /*) ;; *) rest="$forge_cwd/$rest" ;; esac',
+    '  parent=${rest%/*}',
+    '  if [ -z "${forge_physical[slot]+cached}" ]; then',
+    // The batch already runs in a subshell, so cd and restore without forking once per parent.
+    '    if cd -P -- "${parent:-/}" >/dev/null 2>&1; then',
+    '      physical=$PWD; cd -P -- "$forge_cwd" >/dev/null || exit 1',
+    '    else physical=; fi',
+    '    forge_physical[slot]=$physical',
+    '  fi',
+    '  physical=${forge_physical[slot]}',
+    '  if [ -n "$physical" ]; then rest="$physical/${rest##*/}"; fi',
     '  while [ -n "$rest" ]; do',
     '    part=${rest%%/*}',
     '    case "$rest" in */*) rest=${rest#*/} ;; *) rest= ;; esac',
     '    case "$part" in ""|.) ;; ..) full=${full%/*} ;; *) full="$full/$part" ;; esac',
     '  done',
-    '  printf "%s" "$full"',
+    // Escape the separator and the escape character so matching is literal even for unusual paths.
+    '  forge_entry=${full//%/%25}',
+    '  forge_entry=${forge_entry//|/%7C}',
     '}',
     `forge_sources=(${sources.map(posixQuote).join(' ')})`,
-    'forge_reserved=()',
-    'for forge_source in "${forge_sources[@]}"; do forge_reserved+=("$(forge_key "$forge_source")"); done',
-    'forge_taken() {',
-    '  local candidate previous',
-    '  candidate=$(forge_key "$1")',
-    '  for previous in "${forge_reserved[@]}"; do [ "$previous" = "$candidate" ] && return 0; done',
-    '  return 1',
-    '}',
+    `forge_source_parents=(${sources.map(parentSlot).join(' ')})`,
+    "forge_reserved='|'",
+    'forge_reserve() { forge_reserved="$forge_reserved$forge_entry|"; }',
+    'for (( forge_i=0; forge_i<${#forge_sources[@]}; forge_i++ )); do forge_key "${forge_sources[forge_i]}" "${forge_source_parents[forge_i]}"; forge_reserve; done',
+    'forge_taken() { case "$forge_reserved" in *"|$forge_entry|"*) return 0 ;; esac; return 1; }',
     `forge_conflict() { printf '%s%s\\n' ${posixQuote(t('输出已存在或与本批路径冲突：'))} "$1" >&2; exit 1; }`
   ];
   if (outputs.some(({ task }) => task.naming >= 11)) {
@@ -134,15 +152,23 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
       `forge_id() { ${stat} "$1"; }`,
       `forge_identity_error() { printf '%s%s\\n' ${posixQuote(t('无法安全确认输出文件可以覆盖：'))} "$1" >&2; exit 1; }`);
   }
+  const series = new Map<string, string>();
   for (const { task, index } of [...outputs.filter(x => !incrementalNaming(x.task.naming)), ...outputs.filter(x => incrementalNaming(x.task.naming))]) {
-    lines.push(`forge_target=${posixQuote(task.output)}`);
+    const resolve = `forge_key "$forge_target" ${parentSlot(task.output)}`;
+    lines.push(`forge_target=${posixQuote(task.output)}`, resolve);
     if (incrementalNaming(task.naming)) {
       const { base, digits, ext } = serial(task);
-      lines.push(`forge_number=${digits}`, 'while [ -e "$forge_target" ] || [ -L "$forge_target" ] || forge_taken "$forge_target"; do',
+      const numbered = task.naming >= 11;
+      const key = JSON.stringify([base, ext]);
+      const next = series.get(key) ?? `forge_next_${series.size}`;
+      if (!numbered) { series.set(key, next); }
+      lines.push(`forge_number=${numbered ? digits : `\${${next}:-1}`}`, 'while [ -e "$forge_target" ] || [ -L "$forge_target" ] || forge_taken; do',
         `  forge_target=${posixQuote(base)}"$forge_number"${posixQuote(ext)}`,
-        task.naming >= 11 ? '  forge_number=$(forge_increment_serial "$forge_number")' : '  forge_number=$((forge_number + 1))', 'done');
+        '  ' + resolve,
+        numbered ? '  forge_number=$(forge_increment_serial "$forge_number")' : '  forge_number=$((forge_number + 1))', 'done');
+      if (!numbered) { lines.push(`${next}=$forge_number`); }
     } else {
-      lines.push('if forge_taken "$forge_target"; then forge_conflict "$forge_target"; fi');
+      lines.push('if forge_taken; then forge_conflict "$forge_target"; fi');
       if (!mayOverwrite || !task.stagedOutput) { lines.push('if [ -e "$forge_target" ] || [ -L "$forge_target" ]; then forge_conflict "$forge_target"; fi'); }
       else {
         lines.push('if [ -e "$forge_target" ] || [ -L "$forge_target" ]; then',
@@ -163,7 +189,7 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
           'fi');
       }
     }
-    lines.push('forge_reserved+=("$(forge_key "$forge_target")")', `forge_path_${index}=$forge_target`);
+    lines.push('forge_reserve', `forge_path_${index}=$forge_target`);
   }
   return lines;
 }
