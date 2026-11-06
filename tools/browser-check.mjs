@@ -159,5 +159,26 @@ await enPage.getByRole('heading', { name: 'Start with your media' }).waitFor();
 assert.equal(await enPage.getByLabel('Input file 1 path').inputValue(), 'D:\\Media\\example.mp4');
 assert.deepEqual(errors, []); assert.deepEqual(network, []);
 await english.close();
+const cmdContext = await browser.newContext({ locale: 'zh-CN', acceptDownloads: true });
+const cmdPage = await cmdContext.newPage();
+await cmdPage.goto(pathToFileURL(path.resolve('FFmpeg Command Forge.html')).href);
+await cmdPage.getByRole('combobox', { name: '执行终端', exact: true }).fill('CMD');
+await cmdPage.getByRole('option', { name: /^CMD/ }).click();
+await cmdPage.getByRole('button', { name: '批量粘贴路径' }).click();
+await cmdPage.getByRole('textbox', { name: '每行一个输入文件路径' }).fill(
+  Array.from({ length: 6 }, (_, i) => `D:\\Media\\clip-${i}.mkv`).join('\n')
+);
+await cmdPage.getByRole('button', { name: '应用', exact: true }).click();
+await cmdPage.getByText('命令已就绪', { exact: true }).waitFor();
+assert.equal(await cmdPage.locator('#copy-final').isDisabled(), true);
+const fallbackScript = cmdPage.waitForEvent('download');
+await cmdPage.locator('#download-script').click();
+assert.equal((await fallbackScript).suggestedFilename(), 'forge-task.ps1');
+const cmdBundle = cmdPage.waitForEvent('download');
+await cmdPage.locator('#download-zip').click();
+const bundle = unzipSync(await readFile(await (await cmdBundle).path()));
+assert.match(strFromU8(bundle['forge-task.cmd']), /-File "%~dp0forge-task\.ps1"/);
+assert.deepEqual(Buffer.from(bundle['forge-task.ps1']), await readFile(await (await fallbackScript).path()));
+await cmdContext.close();
 await browser.close();
 console.log(`${channel ? 'Edge' : 'Chromium'} 本地文件离线验收通过：中英文界面、覆盖授权、输出流、预设与工作区、脚本与 ZIP 下载、复制降级、参数搜索和移动布局。`);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { renderCommand, renderPlan, downloadableScript } from '../src/render';
+import { renderCommand, renderPlan } from '../src/render';
 import { defaultContext } from '../src/plan';
 import type { CommandPlan, CommandStage, Shell } from '../src/types';
 import { pwsh, gitBash } from './runtime';
@@ -40,6 +40,6 @@ test('完整 Windows 辅助脚本与预览共用同一参数计划', { skip: pro
     const plan: CommandPlan = { context: c, status: 'ready', preset: {}, probes: [], issues: [], tasks: [{ id: 'test', input: 'input', output: 'output', directory: '', candidateStem: 'output', extension: '', naming: 0, stages: [stage], assets: [], preserve: { creation: false, modification: false, access: false } }] };
     const render = renderPlan(plan); assert.deepEqual(render.issues, [], shell);
     const r = execute(render.script, shell); assert.equal(r.status, 0, shell + '\n' + r.stderr); assert.deepEqual(parsed(r.stdout, shell).slice(1), values, shell);
-    if (shell === 'cmd') { const batch = path.resolve('.cache/helper-argv.cmd'); writeFileSync(batch, downloadableScript(plan, render)); const b = execute('"' + batch + '"', 'cmd'); assert.equal(b.status, 0, b.stderr); assert.deepEqual(parsed(b.stdout).slice(1), values, 'helper .cmd file'); }
+    if (shell === 'cmd') { const batch = path.resolve('.cache/helper-argv.cmd'); writeFileSync(batch, render.download.content); const b = execute('"' + batch + '"', 'cmd'); assert.equal(b.status, 0, b.stderr); assert.deepEqual(parsed(b.stdout).slice(1), values, 'helper .cmd file'); }
   }
 });

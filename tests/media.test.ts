@@ -6,7 +6,7 @@ import path from 'node:path';
 import { buildPlan, defaultContext } from '../src/plan';
 import { importPreset } from '../src/preset';
 import { translator } from '../src/i18n';
-import { downloadableScript, renderPlan } from '../src/render';
+import { renderPlan } from '../src/render';
 import type { CommandPlan, Shell } from '../src/types';
 import { pwsh } from './runtime';
 
@@ -17,8 +17,8 @@ function run(exe: string, args: string[]) {
 function execute(plan: CommandPlan, dir: string, expectedFailure = false): void {
   const t = translator('en');
   const r = renderPlan(plan, t); assert.equal(plan.status, 'ready', JSON.stringify(plan.issues)); assert.deepEqual(r.issues, []);
-  const file = path.join(dir, r.filename); writeFileSync(file, (r.filename.endsWith('.ps1') ? '\uFEFF' : '') + downloadableScript(plan, r, t));
-  const cmd = plan.context.shell === 'cmd';
+  const file = path.join(dir, r.download.name); writeFileSync(file, r.download.content);
+  const cmd = r.download.name.endsWith('.cmd');
   const exe = cmd ? 'cmd.exe' : plan.context.shell === 'powershell5' ? 'powershell.exe' : pwsh;
   const args = cmd ? ['/d', '/v:off', '/c', file] : ['-NoProfile', '-File', file];
   if (expectedFailure) {
@@ -68,6 +68,29 @@ test('实际媒体验证三类 Windows 脚本、两遍编码、命名及文件�
   mkdirSync(fonts); burnContext.confirmedPaths = [fonts];
   const burned = await buildPlan(importPreset({ 视频参数_编码器_具体编码: 'libx264', 视频参数_编码器_编码预设: 'ultrafast', 音频参数_编码器_代号: 'audio.copy', 视频参数_烧录字幕_滤镜选择: 'subtitles', 视频参数_烧录字幕_字幕来源是外部文件: '外部字幕文件', 视频参数_烧录字幕_字体文件夹: fonts, 视频参数_烧录字幕_基本样式_名称: "Author's font" }), burnContext);
   execute(burned, dir); assert.ok(statSync(burned.tasks[0].output).size > 100);
+});
+
+test('CMD 长批次通过任务包启动并保留调用目录', { skip: process.platform !== 'win32' }, async () => {
+  mkdirSync('.cache', { recursive: true });
+  const dir = mkdtempSync(path.resolve('.cache/cmd-batch-'));
+  const bundle = path.join(dir, '任务包 & %');
+  mkdirSync(bundle);
+  run('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=size=64x64:d=0.2', '-c:v', 'libx264', path.join(dir, 'source.mkv')]);
+  const c = defaultContext(); c.shell = 'cmd';
+  c.inputs = Array.from({ length: 6 }, (_, i) => ({ id: String(i), path: 'source.mkv', output: `render/out-${i}.mkv` }));
+  const plan = await buildPlan(importPreset({ 视频参数_编码器_具体编码: 'copy' }), c);
+  const rendered = renderPlan(plan);
+  assert.equal(plan.status, 'ready');
+  assert.equal(rendered.copyable, false);
+  assert.equal(rendered.download.name, 'forge-task.ps1');
+  for (const { name, content } of rendered.bundleScripts) { writeFileSync(path.join(bundle, name), content); }
+  const args = ['/d', '/v:off', '/s', '/c', '""' + path.join(bundle, 'forge-task.cmd') + '""'];
+  const r = spawnSync('cmd.exe', args, { cwd: dir, encoding: 'utf8', timeout: 15000, windowsVerbatimArguments: true });
+  assert.equal(r.status, 0, r.error?.message || r.stderr);
+  assert.ok(statSync(path.join(dir, 'render/out-5.mkv')).size > 100);
+  assert.equal(existsSync(path.join(bundle, 'render')), false);
+  const conflict = spawnSync('cmd.exe', args, { cwd: dir, encoding: 'utf8', timeout: 15000, windowsVerbatimArguments: true });
+  assert.notEqual(conflict.status, 0);
 });
 
 test('转码前检查整批输出，覆盖授权拒绝源文件硬链接', { skip: process.platform !== 'win32' }, async () => {

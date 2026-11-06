@@ -1,4 +1,4 @@
-import type { CommandPlan, CommandStage, Issue, RenderedPlan, Shell } from './types';
+import type { CommandPlan, CommandStage, Issue, RenderedPlan, ScriptFile, Shell } from './types';
 import { windowsQuote } from './arguments';
 import { sourceText, type Translate } from './i18n';
 import { posixPreflight, posixQuote, psPath, psQuote, windowsPreflight } from './preflight';
@@ -157,27 +157,39 @@ export function renderPlan(plan: CommandPlan, t: Translate = sourceText): Render
   const commands = stageCommands.join('\n');
   const prefix = shell === 'cmd' ? 'REM ' : '# ';
   const stages = allStages.map((stage, i) => `${prefix}${stage.name}\n${stageCommands[i]}`).join('\n\n');
-  let script: string, filename: string;
+  let script: string, download: ScriptFile, bundleScripts: ScriptFile[], copyable = true;
   const assets = plan.tasks.flatMap(t => t.assets.map(a => ({ path: a.path, content: a.content })));
-  if (shell === 'bash' || shell === 'zsh') { script = posixScript(plan, t); filename = 'forge-task.' + (shell === 'zsh' ? 'zsh' : 'sh'); }
+  if (shell === 'bash' || shell === 'zsh') {
+    script = posixScript(plan, t);
+    download = { name: 'forge-task.' + (shell === 'zsh' ? 'zsh' : 'sh'), content: script };
+    bundleScripts = [download];
+  }
   else if (shell === 'cmd') {
     // CMD delegates the complete helper transaction to the system PowerShell; plain FFmpeg commands remain native CMD.
     const statements = windowsStatements(plan, true, t);
     const source = '& { ' + statements.join('; ') + ' }';
     const stage: CommandStage = { name: '', taskId: '', kind: 'single', graph: '', maps: [], executable: 'powershell.exe', args: ['-NoProfile', '-Command', source] };
-    const interactive = renderCommand(stage, 'cmd');
-    script = interactive;
-    filename = 'forge-task.cmd';
-    assets.push({ path: 'forge-task-readable.ps1', content: '& {\n' + statements.join('\n') + '\n}\n' });
-    if (interactive.length > 8191 || allStages.some(s => [s.executable, ...s.args].some(a => /[\r\n]/.test(a)))) { issues.push({ level: 'error', message: t('CMD 输出超过长度限制或含换行参数，请切换 PowerShell；任务包仍提供可检查的 PowerShell 脚本。') }); }
-    if (allStages.some(s => /%/.test(s.executable))) { issues.push({ level: 'error', message: t('CMD 不支持含百分号的自定义程序路径，请切换 PowerShell。') }); }
-  } else { script = '& {\n' + windowsStatements(plan, shell === 'powershell5', t).join('\n') + '\n}\n'; filename = 'forge-task.ps1'; }
-  return { commands, stages, script, filename, issues, assets };
+    script = renderCommand(stage, 'cmd');
+    const inlineBatch = renderCommand(stage, 'cmd', true);
+    copyable = script.length <= 8191 && !/[\r\n]/.test(source) && !allStages.some(stage => stage.executable.includes('%'));
+    const ps1 = powershellFile('& {\n' + statements.join('\n') + '\n}\n');
+    if (!copyable) {
+      issues.push({ level: 'info', message: t('此 CMD 脚本无法直接粘贴，请下载 PowerShell 脚本或任务包。') });
+    }
+    download = copyable && inlineBatch.length <= 8191 ? { name: 'forge-task.cmd', content: cmdBatch(inlineBatch) } : ps1;
+    // Locate the companion script without changing the caller's working directory.
+    const launcher = '"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -File "%~dp0forge-task.ps1"';
+    bundleScripts = [{ name: 'forge-task.cmd', content: cmdBatch(launcher) }, ps1];
+  } else {
+    script = '& {\n' + windowsStatements(plan, shell === 'powershell5', t).join('\n') + '\n}\n';
+    download = powershellFile(script);
+    bundleScripts = [download];
+  }
+  return { commands, stages, script, copyable, download, bundleScripts, issues, assets };
 }
-export function downloadableScript(plan: CommandPlan, rendered: RenderedPlan, t: Translate = sourceText): string {
-  if (plan.context.shell !== 'cmd') { return rendered.script; }
-  const source = '& { ' + windowsStatements(plan, true, t).join('; ') + ' }';
-  const command = renderCommand({ name: '', taskId: '', kind: 'single', graph: '', maps: [], executable: 'powershell.exe', args: ['-NoProfile', '-Command', source] }, 'cmd', true);
+
+const powershellFile = (script: string): ScriptFile => ({ name: 'forge-task.ps1', content: '\uFEFF' + script });
+function cmdBatch(command: string): string {
   return '@echo off\r\nsetlocal DisableDelayedExpansion\r\nfor /f "tokens=2 delims=:" %%C in (\'chcp\') do set "forge_old_cp=%%C"\r\nchcp 65001 >nul\r\n' + command + '\r\nset "forge_exit=%errorlevel%"\r\nchcp %forge_old_cp% >nul\r\nexit /b %forge_exit%\r\n';
 }
 

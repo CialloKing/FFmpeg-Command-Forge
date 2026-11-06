@@ -38,7 +38,7 @@
 
 PowerShell 5.1 使用原生进程参数字符串，保留空参数与内嵌引号，并并行转发标准输出和错误输出。CMD 的普通命令使用 CMD 引用；完整辅助脚本调用 Windows 自带 PowerShell，下载的 `.cmd` 会关闭延迟展开、切换 UTF-8 代码页并恢复原值。
 
-CMD 交互式复制要求延迟展开关闭（可打开 `cmd /d /v:off`）。超过 CMD 长度限制、程序名含百分号或参数含换行时，页面要求改用 PowerShell。Git Bash 的 Windows 原生进程路径转换不属于目标环境；本机 Git Bash 测试只验证部分 POSIX 引用逻辑。
+CMD 交互式复制要求延迟展开关闭（可打开 `cmd /d /v:off`）。内联脚本超长或含 CMD 无法直接传递的参数时，可下载 PowerShell 脚本，或解压整个任务包运行 `forge-task.cmd`。Git Bash 的 Windows 原生进程路径转换不属于目标环境；本机 Git Bash 测试只验证部分 POSIX 引用逻辑。
 
 硬件编码器和外部滤镜仍依赖实际 FFmpeg 构建、驱动、硬件和插件。切换平台不会自动替换编码器。macOS/Linux 首版支持保留修改时间和访问时间；启用创建时间保留时会明确阻断。
 

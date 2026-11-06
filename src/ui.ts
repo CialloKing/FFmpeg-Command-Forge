@@ -3,7 +3,7 @@ import { revision, version as upstreamVersion } from '../docs/upstream.json';
 import ffmpegFull from './data/ffmpeg-full-2026.11.3.json';
 import { blankValue, clone, data, exportPreset, groupFor, groups, importPreset, schema } from './preset';
 import { associatedProbe, buildPlan, defaultContext, resolvedInput } from './plan';
-import { downloadableScript, renderCommand, renderPlan } from './render';
+import { renderCommand, renderPlan } from './render';
 import { normalizeOrder, subtitleCandidates } from './filters';
 import { filename, isPresetPathField } from './paths';
 import { isProbeData, parseWorkspace } from './workspace';
@@ -491,6 +491,7 @@ function previewText(plan: CommandPlan, rendered: RenderedPlan): string {
       [t('阶段')]: task.stages.map(stage => ({ [t('名称')]: stage.name, [t('程序')]: stage.executable, [t('参数')]: stage.args, [t('映射')]: stage.maps }))
     })), null, 2);
   }
+  if (previewTab === 'script' && !rendered.copyable) { return rendered.download.content.trimStart(); }
   return rendered[previewTab];
 }
 
@@ -498,8 +499,18 @@ function renderOutput(): void {
   const plan = currentPlan!, rendered = currentRendered!, issues = [...plan.issues, ...rendered.issues], incompatible = issues.some(x => x.level === 'error'), ready = plan.status === 'ready' && !incompatible;
   $('#task-summary').textContent = t('{0} 个输入 · {1} 个执行阶段 · {2}', plan.tasks.length, plan.tasks.reduce((n, t) => n + t.stages.length, 0), t(labels[context.shell]));
   renderStreams(plan);
-  $('#status-title').textContent = incompatible ? t('不兼容') : ready ? t('命令已就绪') : t('待补充信息'); $('#status-caption').textContent = incompatible ? t('请处理以下兼容问题') : ready ? t('复制完整脚本到所选终端执行') : t('完成路径、资源或媒体信息确认'); $('#status-icon').textContent = ready ? '✓' : incompatible ? '×' : '◌'; $('#status-icon').style.color = ready ? 'var(--accent)' : incompatible ? 'var(--error)' : 'var(--orange)';
+  $('#status-title').textContent = incompatible ? t('不兼容') : ready ? t('命令已就绪') : t('待补充信息');
+  $('#status-caption').textContent = incompatible ? t('请处理以下兼容问题') : !ready ? t('完成路径、资源或媒体信息确认') :
+    rendered.copyable ? t('复制完整脚本到所选终端执行') : t('下载 PowerShell 脚本，或解压任务包运行 CMD 启动器。');
+  $('#status-icon').textContent = ready ? '✓' : incompatible ? '×' : '◌';
+  $('#status-icon').style.color = ready ? 'var(--accent)' : incompatible ? 'var(--error)' : 'var(--orange)';
   const tabs = $('#preview-tabs'); tabs.replaceChildren();
+  const updatePreview = () => {
+    $('#command').textContent = previewText(plan, rendered);
+    const fallback = previewTab === 'script' && !rendered.copyable;
+    $('#terminal-title').textContent = (ready ? '' : 'PREVIEW · ') + (fallback ? 'POWERSHELL 5.1' : t(labels[context.shell]).toUpperCase());
+    $<HTMLButtonElement>('#copy-preview').disabled = fallback;
+  };
   const labelsByTab: [PreviewTab, string][] = [['commands', t('命令')], ['stages', t('阶段')], ['graph', t('滤镜图')], ['args', t('参数')], ['script', t('完整脚本')]];
   for (const [id, name] of labelsByTab) {
     const tab = button(name, () => {
@@ -507,12 +518,13 @@ function renderOutput(): void {
       previewTab = id;
       tabs.querySelector('.active')?.classList.remove('active');
       tab.classList.add('active');
-      $('#command').textContent = previewText(currentPlan, currentRendered);
+      updatePreview();
     }, 'tab' + (previewTab === id ? ' active' : ''));
     tabs.append(tab);
   }
-  $('#command').textContent = previewText(plan, rendered); $('#terminal-title').textContent = (ready ? '' : 'PREVIEW · ') + t(labels[context.shell]).toUpperCase();
-  for (const id of ['copy-final', 'download-script', 'download-zip']) { $<HTMLButtonElement>('#' + id).disabled = !ready; }
+  updatePreview();
+  $<HTMLButtonElement>('#copy-final').disabled = !ready || !rendered.copyable;
+  for (const id of ['download-script', 'download-zip']) { $<HTMLButtonElement>('#' + id).disabled = !ready; }
   const issueBox = $('#issues'); issueBox.replaceChildren();
   if (issues.length) { issueBox.append(el('h3', '', t('需要关注'))); issues.forEach(issue => issueBox.append(el('div', 'issue ' + issue.level, issue.message))); }
   else { issueBox.append(el('div', 'note accent', context.shell === 'cmd' ? t('CMD 完整脚本调用系统 PowerShell 完成文件准备与精确参数传递。请使用延迟展开关闭的 CMD。') : t('自动命名会在执行时检查实际文件冲突。普通命令视图使用当前候选输出路径。'))); }
@@ -578,11 +590,12 @@ function bindApp(): void {
     body.append(box); dialog.showModal();
   };
   $('#copy-preview').onclick = () => { const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };
-  $('#copy-final').onclick = () => { if (currentRendered) { void copy(currentRendered.script); } };
-  $('#download-script').onclick = () => { if (currentPlan && currentRendered) { const script = downloadableScript(currentPlan, currentRendered, t); save(currentRendered.filename.endsWith('.ps1') ? '\uFEFF' + script : script, currentRendered.filename, 'text/plain;charset=utf-8'); } };
+  $('#copy-final').onclick = () => { if (currentRendered?.copyable) { void copy(currentRendered.script); } };
+  $('#download-script').onclick = () => { if (currentRendered) { const { content, name } = currentRendered.download; save(content, name, 'text/plain;charset=utf-8'); } };
   $('#download-zip').onclick = () => {
     if (!currentPlan || !currentRendered) { return; }
-    const files: Record<string, Uint8Array> = { [currentRendered.filename]: strToU8((currentRendered.filename.endsWith('.ps1') ? '\uFEFF' : '') + downloadableScript(currentPlan, currentRendered, t)), 'preset-v6.json': strToU8(exportPreset(doc)), 'README.txt': strToU8(['FFmpeg Command Forge', t('终端：{0}', t(labels[context.shell])), t('先检查脚本，然后在所选终端运行。输入媒体不包含在任务包内。'), t('Windows CMD 辅助脚本使用系统 PowerShell。'), t('模板副本位于 resources，脚本将内容写入计划中的实际路径。'), '', ''].join('\n') + currentPlan.tasks.map(t => `${t.input}\n=> ${t.output}`).join('\n\n')) };
+    const files: Record<string, Uint8Array> = { 'preset-v6.json': strToU8(exportPreset(doc)), 'README.txt': strToU8(['FFmpeg Command Forge', t('终端：{0}', t(labels[context.shell])), t('先检查脚本，然后在所选终端运行。输入媒体不包含在任务包内。'), ...(context.shell === 'cmd' ? [t('解压整个任务包后运行 forge-task.cmd。启动器需要同目录的 forge-task.ps1。')] : []), t('模板副本位于 resources，完整脚本会准备所需的临时文件。'), '', ''].join('\n') + currentPlan.tasks.map(t => `${t.input}\n=> ${t.output}`).join('\n\n')) };
+    for (const { name, content } of currentRendered.bundleScripts) { files[name] = strToU8(content); }
     currentRendered.assets.forEach((asset, i) => { files['resources/' + String(i + 1).padStart(3, '0') + '-' + filename(asset.path)] = strToU8(asset.content); });
     save(zipSync(files), 'Forge-task.zip', 'application/zip');
   };

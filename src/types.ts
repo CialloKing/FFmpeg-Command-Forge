@@ -36,4 +36,9 @@ export interface PlannedTask {
   streams?: StreamSummary;
 }
 export interface CommandPlan { status: 'ready' | 'missing' | 'incompatible'; issues: Issue[]; tasks: PlannedTask[]; probes: CommandStage[]; context: ExecutionContext; preset: Preset; allowOverwrite?: boolean }
-export interface RenderedPlan { commands: string; stages: string; script: string; filename: string; issues: Issue[]; assets: { path: string; content: string }[] }
+export interface ScriptFile { name: string; content: string }
+export interface RenderedPlan {
+  commands: string; stages: string; script: string; copyable: boolean;
+  download: ScriptFile; bundleScripts: ScriptFile[];
+  issues: Issue[]; assets: { path: string; content: string }[];
+}
