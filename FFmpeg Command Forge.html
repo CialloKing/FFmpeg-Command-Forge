@@ -11,6 +11,7 @@ input,textarea{width:100%;border:1px solid var(--border);border-radius:6px;backg
 @media(max-width:1130px){.workspace{grid-template-columns:174px minmax(360px,1fr)}.output{grid-column:2;height:auto;position:static;border-top:1px solid var(--border);border-left:0}.sidebar{grid-row:1/3;height:calc(100vh - 76px)}.editor{padding:25px}.terminal pre{max-height:320px}.header{padding:0 20px}.toolbar .optional{display:none}}
 @media(max-width:680px){.header{height:auto;min-height:72px;padding:15px;gap:12px;flex-wrap:wrap}.brand-name{font-size:14px}.brandmark{width:32px;height:32px;font-size:21px}.brand-subtitle{font-size:8px}.toolbar{margin-left:auto;gap:5px}.toolbar button{padding:7px 9px;font-size:11px}.workspace{display:flex;flex-direction:column;min-height:0}.sidebar{height:auto;position:static;display:flex;flex-direction:row;overflow:auto;border-right:0;border-bottom:1px solid var(--border);padding:9px;gap:4px}.nav-item{white-space:nowrap;font-size:12px;padding:8px 12px}.nav-caption,.sidebar-foot,.sidebar .number{display:none}.editor{padding:22px 15px}.output{padding:22px 15px}.parameter-fields,.grid2{grid-template-columns:1fr}.field.wide{grid-column:auto}.card{padding:15px}.editor-head{margin-bottom:17px}.output-footer{margin-top:10px}}
 .output-footer a { display:inline-flex; align-items:center; min-height:24px; font-size:12px; }
+#language { display:grid; place-items:center; }
 .language-options { margin-top:16px; }
 .choice { position:relative; min-width:0; }
 .choice input { padding-inline-end:38px; }
@@ -479,7 +480,11 @@ exit /b %forge_exit%\r
       <button id="import" title="${L_()}">${f("\u5BFC\u5165\u9884\u8BBE")}</button>
       <button id="export" title="${L_()}">${f("\u5BFC\u51FA\u9884\u8BBE")}</button>
       <button id="workspace" class="ghost optional">${f("\u5DE5\u4F5C\u533A")}</button>
-      <button id="language" class="ghost" aria-haspopup="dialog">${f("\u8BED\u8A00")}</button>
+      <button id="language" class="ghost" aria-haspopup="dialog" aria-label="${f("\u8BED\u8A00")}" title="${f("\u8BED\u8A00")}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>
+        </svg>
+      </button>
       <button id="theme" class="ghost" aria-label="${f("\u5207\u6362\u660E\u6697\u4E3B\u9898")}">\u25D0</button>
     </div>
   </header>

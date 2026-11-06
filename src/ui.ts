@@ -44,7 +44,11 @@ function mountApp(): void {
       <button id="import" title="${presetHint()}">${t('导入预设')}</button>
       <button id="export" title="${presetHint()}">${t('导出预设')}</button>
       <button id="workspace" class="ghost optional">${t('工作区')}</button>
-      <button id="language" class="ghost" aria-haspopup="dialog">${t('语言')}</button>
+      <button id="language" class="ghost" aria-haspopup="dialog" aria-label="${t('语言')}" title="${t('语言')}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>
+        </svg>
+      </button>
       <button id="theme" class="ghost" aria-label="${t('切换明暗主题')}">◐</button>
     </div>
   </header>
