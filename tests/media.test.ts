@@ -25,7 +25,8 @@ test('实际媒体验证三类 Windows 脚本、两遍编码、命名及文件�
   utimesSync(input, new Date('2025-01-02T03:04:05Z'), new Date('2025-01-02T03:04:05Z'));
   const title = '中文 "标题" %FCF_TEST_VAR% !FCF_TEST_VAR! & more';
   for (const shell of ['powershell', 'powershell5', 'cmd'] as Shell[]) {
-    const output = path.join(dir, shell + '.mkv'), c = defaultContext(); c.shell = shell; c.inputs = [{ id: shell, path: input, output }];
+    const output = path.join(dir, shell, 'relative.mkv'), c = defaultContext(); c.shell = shell; c.cwd = dir;
+    c.inputs = [{ id: shell, path: path.basename(input), output: path.join(shell, 'relative.mkv') }];
     const doc = importPreset({ 输出容器: 'mkv', 输出_自动命名选项: 0, 视频参数_编码器_具体编码: 'libx264', 视频参数_编码器_编码预设: 'ultrafast', 视频参数_分辨率: '128x72', 视频参数_比特率_控制方式: shell === 'powershell5' ? 'TPE' : 'CRF', 视频参数_质量控制_值: '25', 视频参数_比特率_基础: shell === 'powershell5' ? '250k' : '', 音频参数_编码器_代号: 'aac.native', 音频参数_比特率: '64k', 元数据_要写入的信息: [{ 字段: 'title', 值: title }], 输出命名_保留修改时间: true });
     execute(await buildPlan(doc, c), dir);
     const probe = JSON.parse(run('ffprobe', ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', output]));

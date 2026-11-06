@@ -9,22 +9,31 @@ export function splitTrailingSerial(value: string): { base: string; digits: stri
   return { base: value.slice(0, value.length - digits.length), digits };
 }
 
+export const windowsAbsolute = (path: string) => /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(path);
+export const isProtocol = (path: string) => !/^[a-z]:/i.test(path) && /^[a-z][a-z0-9+.-]*:/i.test(path);
+export const isAbsolute = (path: string, windows: boolean) => windows ? windowsAbsolute(path) : path.startsWith('/');
+
+function pathParts(value: string, windows: boolean) {
+  const path = windows ? value.replaceAll('\\', '/').replace(/^\/\/\?\/UNC\//i, '//').replace(/^\/\/\?\/(?=[a-z]:\/)/i, '') : value;
+  const volume = path.match(windows ? /^(?:\/\/[^/]+\/[^/]+(?:\/|$)|[a-z]:\/|\/)/i : /^\//)?.[0] ?? '';
+  const parts: string[] = [];
+  for (const part of path.slice(volume.length).split('/')) {
+    if (!part || part === '.') { continue; }
+    if (part !== '..') { parts.push(windows ? part.replace(/[ .]+$/, '') : part); }
+    else if (parts.length && parts.at(-1) !== '..') { parts.pop(); }
+    else if (!volume) { parts.push(part); }
+  }
+  return { volume: volume ? volume.replace(/\/?$/, '/') : '', parts };
+}
+
+export function pathKey(value: string, windows: boolean): string {
+  const { volume, parts } = pathParts(value, windows);
+  const key = volume + parts.join('/');
+  return windows ? key.toLowerCase() : key;
+}
+
 export function relativeSubdirectory(directory: string, root: string, cwd: string, windows: boolean): string {
-  const separators = (value: string) => windows ? value.replaceAll('\\', '/') : value;
-  const volumePattern = windows ? /^(?:\/\/(?:\?\/UNC\/)?[^/]+\/[^/]+(?:\/|$)|[a-z]:\/|\/)/i : /^\//;
-  const normalize = (value: string) => {
-    let path = separators(value.trim());
-    if (cwd && !volumePattern.test(path)) { path = join(separators(cwd), path, '/'); }
-    const volume = path.match(volumePattern)?.[0] ?? '';
-    const parts: string[] = [];
-    for (const part of path.slice(volume.length).split('/')) {
-      if (!part || part === '.') { continue; }
-      if (part !== '..') { parts.push(part); }
-      else if (parts.length && parts.at(-1) !== '..') { parts.pop(); }
-      else if (!volume) { parts.push(part); }
-    }
-    return { volume: volume ? volume.replace(/\/?$/, '/') : '', parts };
-  };
+  const normalize = (value: string) => pathParts(cwd && !isAbsolute(value, windows) ? join(cwd, value, windows ? '\\' : '/') : value, windows);
   // Compare normalized path components before using any suffix as an output subdirectory.
   const source = normalize(directory), base = normalize(root);
   const key = (value: string) => windows ? value.toLowerCase() : value;

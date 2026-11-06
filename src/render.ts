@@ -17,8 +17,11 @@ export function renderCommand(stage: CommandStage, shell: Shell, batch = false, 
   return `& { $PSNativeCommandArgumentPassing = 'Standard'; & ${[executable, ...args].map(psQuote).join(' ')}; if ($LASTEXITCODE -ne 0) { throw (${psQuote(t('进程失败：'))} + $LASTEXITCODE) } }`;
 }
 function processStatement(executable: string, argumentExpression: string, t: Translate): string {
-  return `$forgeStart = New-Object System.Diagnostics.ProcessStartInfo; $forgeStart.FileName = ${psQuote(executable)}; $forgeStart.Arguments = ${argumentExpression}; $forgeStart.UseShellExecute = $false; $forgeStart.CreateNoWindow = $true; $forgeStart.RedirectStandardOutput = $true; $forgeStart.RedirectStandardError = $true; $forgeProcess = [System.Diagnostics.Process]::Start($forgeStart); $forgeStdout = $forgeProcess.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput()); $forgeStderr = $forgeProcess.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError()); $forgeProcess.WaitForExit(); [void]$forgeStdout.GetAwaiter().GetResult(); [void]$forgeStderr.GetAwaiter().GetResult(); $forgeCode = $forgeProcess.ExitCode; $forgeProcess.Dispose(); if ($forgeCode -ne 0) { throw (${psQuote(t('进程失败：'))} + $forgeCode) }`;
+  const exe = /[\\/]/.test(executable) ? `$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(${psQuote(executable)})` : psQuote(executable);
+  return `$forgeStart = New-Object System.Diagnostics.ProcessStartInfo; $forgeStart.FileName = ${exe}; $forgeStart.Arguments = ${argumentExpression}; $forgeStart.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath; $forgeStart.UseShellExecute = $false; $forgeStart.CreateNoWindow = $true; $forgeStart.RedirectStandardOutput = $true; $forgeStart.RedirectStandardError = $true; $forgeProcess = [System.Diagnostics.Process]::Start($forgeStart); $forgeStdout = $forgeProcess.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput()); $forgeStderr = $forgeProcess.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError()); $forgeProcess.WaitForExit(); [void]$forgeStdout.GetAwaiter().GetResult(); [void]$forgeStderr.GetAwaiter().GetResult(); $forgeCode = $forgeProcess.ExitCode; $forgeProcess.Dispose(); if ($forgeCode -ne 0) { throw (${psQuote(t('进程失败：'))} + $forgeCode) }`;
 }
+// .NET file APIs use the process directory rather than PowerShell's current location.
+const psPath = (path: string) => `$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(${psQuote(path)})`;
 function psOutputExpression(value: string, output: string): string {
   const chunks = value.split(output);
   return chunks.length === 1 ? psQuote(value) : '(' + chunks.map(psQuote).join(' + $forgeOutput + ') + ')';
@@ -30,7 +33,7 @@ function windowsStatements(plan: CommandPlan, legacy: boolean, t: Translate): st
   for (const task of plan.tasks) {
     const usesOutput = needsOutput(task);
     lines.push(`Write-Host ${psQuote(t('任务：') + task.input)}`);
-    if (usesOutput && task.directory) { lines.push(`[System.IO.Directory]::CreateDirectory(${psQuote(task.directory)}) | Out-Null`); }
+    if (usesOutput && task.directory) { lines.push(`[System.IO.Directory]::CreateDirectory(${psPath(task.directory)}) | Out-Null`); }
     lines.push(`$forgeOutput = ${psQuote(task.output)}`);
     if (usesOutput && [1, 2, 11, 12].includes(task.naming)) {
       const numbered = task.naming >= 11, pathStem = withoutExtension(task.output);
@@ -47,7 +50,7 @@ function windowsStatements(plan: CommandPlan, legacy: boolean, t: Translate): st
     if (usesOutput) { lines.push(`Write-Host (${psQuote(t('输出：'))} + $forgeOutput)`); }
     for (const asset of task.assets) {
       const base64 = b64(new TextEncoder().encode(asset.content));
-      lines.push(`[System.IO.File]::WriteAllBytes(${psQuote(asset.path)}, [System.Convert]::FromBase64String(${psQuote(base64)}))`);
+      lines.push(`[System.IO.File]::WriteAllBytes(${psPath(asset.path)}, [System.Convert]::FromBase64String(${psQuote(base64)}))`);
     }
     for (const stage of task.stages) {
       if (legacy) {

@@ -118,3 +118,16 @@ test('保留子目录结构前规范化路径，长序号准确避让同批任�
   const serialPlan = await buildPlan(serialPreset, context);
   assert.deepEqual(serialPlan.tasks.map(task => task.output), ['D:\\Output\\clip20261106192345001.mkv', 'D:\\Output\\clip20261106192345002.mkv']);
 });
+
+test('探测和转码使用同一份路径映射，显式输出提供容器后缀', async () => {
+  const c = defaultContext();
+  c.platform = 'linux';
+  c.shell = 'bash';
+  c.cwd = 'D:\\Media';
+  c.pathMappings = [{ from: 'D:\\', to: '/mnt' }, { from: 'd:/media', to: '/source' }, { from: '/source', to: '/wrong' }];
+  c.inputs = [{ id: 'clip', path: 'input', output: 'render/out.mkv' }];
+  const plan = await buildPlan(importPreset({}), c);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.issues));
+  assert.equal(plan.probes[0].args.at(-1), '/source/input');
+  assert.deepEqual(plan.tasks[0].stages[0].args.slice(-3), ['-i', '/source/input', '/source/render/out.mkv']);
+});

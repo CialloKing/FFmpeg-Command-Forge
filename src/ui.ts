@@ -338,7 +338,7 @@ function environment(): HTMLElement {
     if (task.probe?.path === task.path) { const p = task.probe.data; block.append(el('small', '', t('已关联此路径 · {0} 个流 · 时长 {1} 秒', p.streams?.length ?? 0, p.format?.duration ?? t('未知')))); }
     const a = doc.normalized;
     if (a.视频参数_烧录字幕_滤镜选择 && a.视频参数_烧录字幕_字幕来源是外部文件 === 1) {
-      const input = textInput(task.subtitle || '', v => { task.subtitle = v; schedule(); }, t('实际字幕路径')); const candidates = subtitleCandidates(a, resolvedInput(task, context));
+      const input = textInput(task.subtitle || '', v => { task.subtitle = v; schedule(); }, t('实际字幕路径')); const candidates = subtitleCandidates(a, task.path.trim());
       block.append(labeled(t('本次烧录的外部字幕'), input, t('候选：{0}', candidates.join(' · '))));
       const candidateButtons = el('div', 'row wrap'); candidates.forEach(p => candidateButtons.append(button(filename(p), () => { task.subtitle = p; schedule(); renderEditor(); }, 'small'))); block.append(candidateButtons);
     }
