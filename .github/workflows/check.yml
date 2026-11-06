@@ -26,3 +26,10 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+      - run: git diff --exit-code -- 'FFmpeg Command Forge.html'
+      - if: runner.os == 'Linux'
+        run: npm exec -- playwright install --with-deps --only-shell chromium
+      - if: runner.os == 'Linux'
+        run: npm run test:browser
+        env:
+          FORGE_BROWSER: chromium

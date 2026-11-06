@@ -29,6 +29,11 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
+      - run: git diff --exit-code -- 'FFmpeg Command Forge.html'
+      - run: npm exec -- playwright install --with-deps --only-shell chromium
+      - run: npm run test:browser
+        env:
+          FORGE_BROWSER: chromium
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

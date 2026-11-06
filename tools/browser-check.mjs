@@ -6,7 +6,8 @@ import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 
 await mkdir('.cache', { recursive: true });
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const channel = process.env.FORGE_BROWSER === 'chromium' ? undefined : 'msedge';
+const browser = await chromium.launch({ channel, headless: true });
 const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1536, height: 1000 }, acceptDownloads: true });
 const page = await context.newPage();
 const errors = [], network = [];
@@ -65,6 +66,9 @@ const exported = JSON.parse(await readFile('.cache/browser-preset.json', 'utf8')
 const chooser = page.waitForEvent('filechooser'); await page.getByRole('button', { name: '导入预设', exact: true }).click(); await (await chooser).setFiles(path.resolve('.cache/browser-preset.json')); await page.waitForFunction(() => !document.querySelector('#copy-final').disabled);
 const zipDownload = page.waitForEvent('download'); await page.getByRole('button', { name: '下载任务包', exact: true }).click(); await (await zipDownload).saveAs('.cache/browser-task.zip');
 const zip = unzipSync(await readFile('.cache/browser-task.zip')); assert.deepEqual(JSON.parse(strFromU8(zip['preset-v6.json'])), exported); assert.match(strFromU8(zip['forge-task.ps1']), /libx264/);
+const scriptDownload = page.waitForEvent('download');
+await page.getByRole('button', { name: '下载脚本', exact: true }).click();
+assert.deepEqual(await readFile(await (await scriptDownload).path()), Buffer.from(zip['forge-task.ps1']));
 await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.reject(new Error('blocked')) } }));
 await page.getByRole('button', { name: '复制最终脚本 ↗' }).click(); assert.match(await page.evaluate(() => getSelection().toString()), /libx264/);
 await page.getByRole('button', { name: '画面', exact: true }).click();
@@ -149,4 +153,4 @@ assert.equal(await enPage.getByLabel('Input file 1 path').inputValue(), 'D:\\Med
 assert.deepEqual(errors, []); assert.deepEqual(network, []);
 await english.close();
 await browser.close();
-console.log('Edge 本地文件离线验收通过：中英文自动选择、参数编辑、预设往返、ZIP任务包、复制降级、滤镜排序与未知字段保留、全局搜索、明暗主题、移动布局、工作区恢复、禁用存储。');
+console.log(`${channel ? 'Edge' : 'Chromium'} 本地文件离线验收通过：中英文界面、覆盖授权、输出流、预设与工作区、脚本与 ZIP 下载、复制降级、参数搜索和移动布局。`);

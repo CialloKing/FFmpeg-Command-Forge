@@ -8,7 +8,7 @@
 
 界面支持简体中文和英文，默认跟随浏览器的语言偏好，未匹配时使用英文。点击右上角的地球图标可手动切换语言。
 
-推送到 `main` 后，GitHub Actions 自动执行类型检查和单文件构建，将 `dist/index.html` 发布到 GitHub Pages。首次配置或迁移仓库时，在 Settings → Pages 中将 Source 设为 GitHub Actions；也可在 Actions 中手动运行“部署 GitHub Pages”。
+推送到 `main` 后，GitHub Actions 执行类型检查、单文件一致性检查和 Chromium 离线验收，再将 `dist/index.html` 发布到 GitHub Pages。首次配置或迁移仓库时，在 Settings → Pages 中将 Source 设为 GitHub Actions；也可在 Actions 中手动运行“部署 GitHub Pages”。
 
 ## 直接使用
 
