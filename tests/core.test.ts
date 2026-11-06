@@ -66,7 +66,16 @@ test('原版参数与 TypeScript 执行计划保持一致', async () => {
     if (cases[i].expectReady) { assert.equal(plan.status, 'ready', JSON.stringify(plan.issues)); }
     assert.equal(results[i].error, undefined, cases[i].name);
     assert.equal(plan.tasks[0].stages.length, results[i].length, cases[i].name);
-    results[i].forEach((r: any, j: number) => { assert.deepEqual(plan.tasks[0].stages[j].args, parseArguments(r.命令行), cases[i].name); assert.equal(plan.tasks[0].stages[j].graph, r.滤镜图, cases[i].name); });
+    results[i].forEach((r: any, j: number) => {
+      const stage = plan.tasks[0].stages[j], expected = parseArguments(r.命令行);
+      if (stage.overwriteArg !== undefined) {
+        assert.equal(expected[stage.overwriteArg], '-y');
+        assert.equal(stage.args[stage.overwriteArg], '-n');
+        expected[stage.overwriteArg] = '-n';
+      }
+      assert.deepEqual(stage.args, expected, cases[i].name);
+      assert.equal(stage.graph, r.滤镜图, cases[i].name);
+    });
   }
 });
 
@@ -130,4 +139,17 @@ test('探测和转码使用同一份路径映射，显式输出提供容器后�
   assert.equal(plan.status, 'ready', JSON.stringify(plan.issues));
   assert.equal(plan.probes[0].args.at(-1), '/source/input');
   assert.deepEqual(plan.tasks[0].stages[0].args.slice(-3), ['-i', '/source/input', '/source/render/out.mkv']);
+});
+
+test('批量固定输出不能占用其他输入或输出', async () => {
+  const c = defaultContext();
+  c.cwd = 'D:\\Media';
+  c.inputs = [
+    { id: 'one', path: 'first.mkv', output: 'a/../Second.MKV' },
+    { id: 'two', path: 'second.mkv', output: 'out.mkv' },
+    { id: 'three', path: 'third.mkv', output: './OUT.mkv' }
+  ];
+  const plan = await buildPlan(importPreset({}), c);
+  assert.equal(plan.status, 'incompatible');
+  assert.equal(plan.issues.filter(issue => issue.level === 'error').length, 2);
 });

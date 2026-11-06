@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { buildPlan, defaultContext } from '../src/plan';
 import { importPreset } from '../src/preset';
+import { translator } from '../src/i18n';
 import { downloadableScript, renderPlan } from '../src/render';
 import type { CommandPlan, Shell } from '../src/types';
 import { pwsh } from './runtime';
@@ -13,11 +14,19 @@ function run(exe: string, args: string[]) {
   const r = spawnSync(exe, args, { encoding: 'utf8', timeout: 30000, maxBuffer: 2e6, env: { ...process.env, FCF_TEST_VAR: 'MUST_NOT_EXPAND' } });
   assert.equal(r.status, 0, (r.error?.message || '') + '\n' + r.stderr); return r.stdout;
 }
-function execute(plan: CommandPlan, dir: string): void {
-  const r = renderPlan(plan); assert.equal(plan.status, 'ready', JSON.stringify(plan.issues)); assert.deepEqual(r.issues, []);
-  const file = path.join(dir, r.filename); writeFileSync(file, (r.filename.endsWith('.ps1') ? '\uFEFF' : '') + downloadableScript(plan, r));
-  if (plan.context.shell === 'cmd') { run('cmd.exe', ['/d', '/v:off', '/c', file]); }
-  else { run(plan.context.shell === 'powershell5' ? 'powershell.exe' : pwsh, ['-NoProfile', '-File', file]); }
+function execute(plan: CommandPlan, dir: string, expectedFailure = false): void {
+  const t = translator('en');
+  const r = renderPlan(plan, t); assert.equal(plan.status, 'ready', JSON.stringify(plan.issues)); assert.deepEqual(r.issues, []);
+  const file = path.join(dir, r.filename); writeFileSync(file, (r.filename.endsWith('.ps1') ? '\uFEFF' : '') + downloadableScript(plan, r, t));
+  const cmd = plan.context.shell === 'cmd';
+  const exe = cmd ? 'cmd.exe' : plan.context.shell === 'powershell5' ? 'powershell.exe' : pwsh;
+  const args = cmd ? ['/d', '/v:off', '/c', file] : ['-NoProfile', '-File', file];
+  if (expectedFailure) {
+    const result = spawnSync(exe, args, { encoding: 'utf8', timeout: 30000 });
+    assert.ifError(result.error);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout + result.stderr, /batch/);
+  } else { run(exe, args); }
 }
 test('实际媒体验证三类 Windows 脚本、两遍编码、命名及文件时间', { skip: process.platform !== 'win32' }, async () => {
   mkdirSync('.cache', { recursive: true }); const dir = mkdtempSync(path.resolve('.cache/media-')), input = path.join(dir, 'input 中文 & ! %.mkv');
@@ -51,6 +60,32 @@ test('实际媒体验证三类 Windows 脚本、两遍编码、命名及文件�
   const burnContext = defaultContext(); burnContext.inputs = [{ id: 'burn', path: input, output: path.join(dir, 'burned.mkv'), subtitle: srt }];
   const burned = await buildPlan(importPreset({ 视频参数_编码器_具体编码: 'libx264', 视频参数_编码器_编码预设: 'ultrafast', 音频参数_编码器_代号: 'audio.copy', 视频参数_烧录字幕_滤镜选择: 'subtitles', 视频参数_烧录字幕_字幕来源是外部文件: '外部字幕文件' }), burnContext);
   execute(burned, dir); assert.ok(statSync(burned.tasks[0].output).size > 100);
+});
+
+test('转码前检查整批输出，覆盖授权拒绝源文件硬链接', { skip: process.platform !== 'win32' }, async () => {
+  mkdirSync('.cache', { recursive: true });
+  const dir = mkdtempSync(path.resolve('.cache/overwrite-'));
+  const input = path.join(dir, 'source.mkv'), first = path.join(dir, 'first.mkv'), target = path.join(dir, 'occupied.mkv');
+  run('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=size=64x64:d=0.2', '-c:v', 'libx264', input]);
+  const original = readFileSync(input);
+  const doc = importPreset({ 视频参数_编码器_具体编码: 'copy' });
+  const c = defaultContext(); c.cwd = dir;
+  c.inputs = [{ id: 'first', path: 'source.mkv', output: 'first.mkv' }, { id: 'second', path: 'source.mkv', output: 'occupied.mkv' }];
+  writeFileSync(target, 'existing');
+  const english = translator('en');
+  execute(await buildPlan(doc, c, english), dir, true);
+  assert.equal(existsSync(first), false);
+  assert.equal(readFileSync(target, 'utf8'), 'existing');
+  c.shell = 'cmd';
+  c.inputs.shift();
+  execute(await buildPlan(doc, c, english, true), dir);
+  assert.ok(statSync(target).size > 100);
+  const alias = path.join(dir, 'hardlink.mkv');
+  linkSync(input, alias);
+  c.inputs[0].output = 'hardlink.mkv';
+  execute(await buildPlan(doc, c, english, true), dir, true);
+  assert.deepEqual(readFileSync(input), original);
+  assert.deepEqual(readFileSync(alias), original);
 });
 
 test('辅助文件按 UTF-8 写入且阶段失败后不继续', { skip: process.platform !== 'win32' }, async () => {

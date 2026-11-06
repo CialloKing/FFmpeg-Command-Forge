@@ -10,11 +10,16 @@ export interface ExecutionContext {
   outputDirectory: string; inputs: InputTask[]; pathMappings: { from: string; to: string }[];
   resources: Record<string, string>; confirmedPaths: string[]; clock: string; nonce: string;
 }
-export interface CommandStage { name: string; kind: 'probe' | 'single' | 'pass1' | 'pass2'; executable: string; args: string[]; graph: string; maps: string[]; taskId: string }
+export interface CommandStage {
+  name: string; kind: 'probe' | 'single' | 'pass1' | 'pass2'; executable: string; args: string[]; graph: string; maps: string[]; taskId: string;
+  outputArgs?: Record<number, string[]>;
+  overwriteArg?: number;
+}
 export interface PlannedTask {
   id: string; input: string; output: string; directory: string; stages: CommandStage[];
   assets: { path: string; content: string }[]; preserve: { creation: boolean; modification: boolean; access: boolean };
   naming: number; candidateStem: string; extension: string;
+  managedOutput?: boolean;
 }
-export interface CommandPlan { status: 'ready' | 'missing' | 'incompatible'; issues: Issue[]; tasks: PlannedTask[]; probes: CommandStage[]; context: ExecutionContext; preset: Preset }
+export interface CommandPlan { status: 'ready' | 'missing' | 'incompatible'; issues: Issue[]; tasks: PlannedTask[]; probes: CommandStage[]; context: ExecutionContext; preset: Preset; allowOverwrite?: boolean }
 export interface RenderedPlan { commands: string; stages: string; script: string; filename: string; issues: Issue[]; assets: { path: string; content: string }[] }

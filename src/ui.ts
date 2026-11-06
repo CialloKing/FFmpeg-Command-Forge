@@ -32,7 +32,12 @@ const presetFormat = `v${data.defaults.预设文件版本} JSON`;
 const presetHint = () => t('预设兼容基线 {0} · {1}', presetBaseline, presetFormat);
 let doc: PresetDocument = readPreset(), context: ExecutionContext = defaultContext(), selected = '任务与环境', query = '', previewTab = 'commands', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
 let theme = 'dark';
+let allowOverwrite = false;
 let library: { name: string; preset: Preset }[] = [];
+function replacePreset(input?: string | Preset): void {
+  doc = readPreset(input);
+  allowOverwrite = false;
+}
 function mountApp(): void {
   document.documentElement.lang = locale;
   $<HTMLMetaElement>('meta[name=description]').content = t('离线 FFmpeg 命令生成器，预设兼容基线为 FFmpegFreeUI（3FUI）{0}，采用 v6 JSON 格式。', upstreamVersion);
@@ -99,7 +104,7 @@ function loadWorkspace(input: any): void {
   for (const key of ['platform', 'shell', 'ffmpeg', 'ffprobe', 'cwd', 'outputDirectory', 'clock', 'nonce']) { if (typeof input.context[key] !== 'string') { throw new Error(t('工作区执行环境字段无效：{0}', key)); } }
   if (!['windows', 'macos', 'linux'].includes(input.context.platform) || !Object.hasOwn(labels, input.context.shell)) { throw new Error(t('工作区目标环境无效')); }
   if (!Array.isArray(input.context.pathMappings) || !input.context.pathMappings.every((m: any) => typeof m.from === 'string' && typeof m.to === 'string') || !Array.isArray(input.context.confirmedPaths) || typeof input.context.resources !== 'object') { throw new Error(t('工作区资源映射格式无效')); }
-  doc = readPreset(input.preset); context = { ...defaults, ...input.context }; theme = input.theme === 'light' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme;
+  replacePreset(input.preset); context = { ...defaults, ...input.context }; theme = input.theme === 'light' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme;
 }
 try { const cachedText = localStorage.getItem(cacheKey); if (cachedText) { loadWorkspace(JSON.parse(cachedText)); } const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]'); if (Array.isArray(stored)) { library = stored.filter(x => typeof x.name === 'string' && x.preset && typeof x.preset === 'object'); } }
 catch { /* A malformed or unavailable cache must never prevent a fresh session. */ }
@@ -117,7 +122,7 @@ function schedule(): void {
 async function recompute(): Promise<void> {
   const id = ++generation;
   try {
-    const plan = await buildPlan(doc, context, t); if (id !== generation) { return; }
+    const plan = await buildPlan(doc, context, t, allowOverwrite); if (id !== generation) { return; }
     currentPlan = plan; currentRendered = renderPlan(plan, t); renderOutput();
   } catch (error) {
     if (id !== generation) { return; }
@@ -324,7 +329,12 @@ function environment(): HTMLElement {
   grid.append(labeled(t('目标系统'), choiceInput([['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']], context.platform, v => { context.platform = v as ExecutionContext['platform']; context.shell = v === 'windows' ? 'powershell' : v === 'macos' ? 'zsh' : 'bash'; context.confirmedPaths = []; context.inputs.forEach(t => { t.probe = undefined; t.sidecarsConfirmed = false; }); schedule(); renderEditor(); })), labeled(t('执行终端'), choiceInput(Object.entries(labels).map(([value, label]) => [value, t(label)]), context.shell, v => { context.shell = v as Shell; schedule(); })));
   grid.append(labeled(t('FFmpeg 程序'), textInput(context.ffmpeg, v => { context.ffmpeg = v; schedule(); }), t('默认从 PATH 查找，也可填写完整路径')), labeled(t('ffprobe 程序'), textInput(context.ffprobe, v => { context.ffprobe = v; schedule(); })));
   grid.append(labeled(t('工作目录'), textInput(context.cwd, v => { context.cwd = v; schedule(); }, t('例如 {0}', context.platform === 'windows' ? 'D:\\Media' : '/home/user/Media')), t('相对路径将在此目录下解释')), labeled(t('本次输出目录'), textInput(context.outputDirectory, v => { context.outputDirectory = v; schedule(); }, t('留空时使用预设或输入文件目录'))));
-  card.append(grid); content.append(heading(t('执行环境'), '01'), card, heading(t('输入文件'), '02'));
+  const overwrite = el('input'); overwrite.type = 'checkbox'; overwrite.checked = allowOverwrite;
+  overwrite.onchange = () => { allowOverwrite = overwrite.checked; schedule(); };
+  const overwriteField = labeled(t('允许本批脚本覆盖已有输出'), overwrite, t('递增命名仍会避让已有文件。命令预览始终使用防覆盖模式。'));
+  overwriteField.classList.add('boolean'); overwriteField.prepend(overwrite);
+  card.append(grid, overwriteField);
+  content.append(heading(t('执行环境'), '01'), card, heading(t('输入文件'), '02'));
   const note = el('p', 'note', t('粘贴实际路径，或使用“工作目录 + 相对文件名”。拖入文件只取得文件名，不会把浏览器的虚拟路径当作本机路径。')); content.append(note);
   context.inputs.forEach((task, index) => {
     const block = el('div', 'input-task'), title = row(el('span', 'task-id', 'INPUT ' + String(index + 1).padStart(2, '0')), el('span', 'grow'), button(t('移除'), () => { context.inputs.splice(index, 1); schedule(); renderEditor(); }, 'small ghost'));
@@ -375,7 +385,7 @@ function presetCard(presets: { 名称: string; 数据: Preset }[], label: string
   card.append(labeled(label, choice), description, button(t('应用此预设'), () => {
     const preset = presets[index];
     if (!preset) { return; }
-    doc = readPreset(preset.数据);
+    replacePreset(preset.数据);
     schedule();
     toast(t('已应用：{0}', texts[index].name));
   }, 'primary'));
@@ -394,8 +404,8 @@ function presetLibrary(): HTMLElement {
   content.append(heading(`ffmpeg-full ${ffmpegFull.version}`, '02'), fullCard, heading(t('我的预设'), '03'));
   const saved = el('div', 'card stack'), name = textInput('', () => {}, t('为当前预设命名'));
   saved.append(row(name, button(t('保存副本'), () => { if (!name.value.trim()) { toast(t('请先填写预设名称')); return; } library.push({ name: name.value.trim(), preset: clone(doc.raw) }); persistLibrary(); renderEditor(); }, 'small')));
-  library.forEach((p, i) => { const r = el('div', 'saved-row'); r.append(el('span', 'grow', p.name), button(t('应用'), () => { doc = readPreset(p.preset); schedule(); toast(t('已应用：{0}', p.name)); }, 'small'), button(t('导出'), () => save(JSON.stringify(p.preset, null, 2), p.name + '.json', 'application/json'), 'small ghost'), button('×', () => { library.splice(i, 1); persistLibrary(); renderEditor(); }, 'small ghost')); saved.append(r); });
-  saved.append(el('small', '', t('浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。'))); content.append(saved, heading(t('原生预设'), '04'), button(t('查看或编辑完整 JSON'), () => openTextDialog(presetHint(), exportPreset(doc), text => { doc = readPreset(text); schedule(); renderEditor(); }), 'ghost')); return content;
+  library.forEach((p, i) => { const r = el('div', 'saved-row'); r.append(el('span', 'grow', p.name), button(t('应用'), () => { replacePreset(p.preset); schedule(); toast(t('已应用：{0}', p.name)); }, 'small'), button(t('导出'), () => save(JSON.stringify(p.preset, null, 2), p.name + '.json', 'application/json'), 'small ghost'), button('×', () => { library.splice(i, 1); persistLibrary(); renderEditor(); }, 'small ghost')); saved.append(r); });
+  saved.append(el('small', '', t('浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。'))); content.append(saved, heading(t('原生预设'), '04'), button(t('查看或编辑完整 JSON'), () => openTextDialog(presetHint(), exportPreset(doc), text => { replacePreset(text); schedule(); renderEditor(); }), 'ghost')); return content;
 }
 function persistLibrary(): void { try { localStorage.setItem(libraryKey, JSON.stringify(library)); } catch { toast(t('浏览器存储不可用，请导出 JSON 保存')); } }
 function renderEditor(): void {
@@ -474,8 +484,8 @@ function selectLanguage(preference: Locale | null): void {
 function bindApp(): void {
   $('#language').onclick = openLanguageDialog;
   $('#dialog-close').onclick = () => $<HTMLDialogElement>('#dialog').close();
-  $('#new').onclick = () => { doc = readPreset(); context = defaultContext(); navigate('任务与环境'); schedule(); toast(t('已创建新方案')); };
-  $('#import').onclick = () => pick('.json', async f => { doc = readPreset(await f.text()); context.confirmedPaths = []; schedule(); renderEditor(); toast(t('已导入：{0}', f.name)); });
+  $('#new').onclick = () => { replacePreset(); context = defaultContext(); navigate('任务与环境'); schedule(); toast(t('已创建新方案')); };
+  $('#import').onclick = () => pick('.json', async f => { replacePreset(await f.text()); context.confirmedPaths = []; schedule(); renderEditor(); toast(t('已导入：{0}', f.name)); });
   $('#export').onclick = () => save(exportPreset(doc), 'FFmpegFreeUI-v6.json', 'application/json');
   $('#theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; cached(); };
   $('#workspace').onclick = () => {

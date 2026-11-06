@@ -12,12 +12,12 @@ function mime(file: string, type: number): string {
   const map: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', jxl: 'image/jxl', png: 'image/png', webp: 'image/webp', bmp: 'image/bmp', gif: 'image/gif', ttf: 'application/x-truetype-font', otf: 'application/vnd.ms-opentype', ttc: 'application/x-font-ttf', woff: 'font/woff', woff2: 'font/woff2', txt: 'text/plain', md: 'text/plain', nfo: 'text/plain', json: 'application/json', xml: 'application/xml' };
   return map[extension(file).slice(1).toLowerCase()] || (type === 5 ? 'text/plain' : 'application/octet-stream');
 }
-export function extraOutputs(a: Preset, g: GraphResult, input: string, output: string, sidecars: string[]): { inputs: string[]; outputs: string[] } {
+export function extraOutputs(a: Preset, g: GraphResult, input: string, output: string, sidecars: string[], outputReference = output): { inputs: string[]; outputs: string[] } {
   const inputs: string[] = [], outputs: string[] = [];
   const ext = containerExtension(a, output), matroska = ['mkv', 'mka', 'mks', 'mk3d'].includes(ext), coverAllowed = matroska || ['mp4', 'm4v', 'm4a', 'mov', '3gp', '3g2'].includes(ext);
   const metadataMode = a.流控制_元数据选项;
   if (metadataMode) { add(outputs, '-map_metadata', metadataMode === 2 ? '-1' : '0'); if (metadataMode === 3) { add(outputs, '-movflags', '+use_metadata_tags'); } }
-  for (const item of a.元数据_要写入的信息) { if (item.字段.trim()) { add(outputs, '-metadata', substitute(item.字段.trim() + '=' + item.值, input, output)); } }
+  for (const item of a.元数据_要写入的信息) { if (item.字段.trim()) { add(outputs, '-metadata', substitute(item.字段.trim() + '=' + item.值, input, outputReference)); } }
   if (a.流控制_章节选项) { add(outputs, '-map_chapters', a.流控制_章节选项 === 1 ? '0' : '-1'); }
   let inputIndex = 1;
   if (a.章节_来源 && a.章节_文件路径.trim()) {

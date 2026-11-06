@@ -25,7 +25,7 @@ export function subtitleCandidates(a: Preset, input: string): string[] {
 }
 function subtitle(a: Preset, input: string, output: string, external?: string): string {
   const p = '视频参数_烧录字幕_'; const v = (k: string): any => a[p + k];
-  if (v('自己写滤镜取代所有设置')) { return substitute(v('自己写滤镜取代所有设置'), input, '<输出文件>'); }
+  if (v('自己写滤镜取代所有设置')) { return substitute(v('自己写滤镜取代所有设置'), input, output); }
   if (!v('滤镜选择')) { return ''; }
   const inner = v('字幕来源是外部文件') === 2;
   const file = inner ? input : external;

@@ -17,13 +17,18 @@ test('POSIX 原生参数及实际转码', { skip: process.platform === 'win32' }
     const stage = { executable: process.execPath, args: ['-e', 'console.log(JSON.stringify(process.argv.slice(1)))', '--', ...values], name: '', kind: 'single' as const, taskId: 'native', graph: '', maps: [] };
     assert.deepEqual(JSON.parse(run(shell, ['-c', renderCommand(stage, shell)])), values);
     const input = path.join(dir, `${shell} input.mp4`); run('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=10', '-t', '1', '-c:v', 'libx264', input]);
-    const c = defaultContext(); c.platform = process.platform === 'darwin' ? 'macos' : 'linux'; c.shell = shell; c.inputs = [{ id: shell, path: input }]; c.outputDirectory = dir;
-    const plan = await buildPlan(importPreset({ 输出容器: 'mkv', 输出_自动命名选项: '附加_2位结尾序号', 输出命名_替代文本: `${shell} clip20261106192344998`, 视频参数_编码器_具体编码: 'libx264', 视频参数_比特率_控制方式: 'TPE', 视频参数_比特率_基础: '200k', 输出命名_保留修改时间: true }), c);
+    const c = defaultContext(); c.platform = process.platform === 'darwin' ? 'macos' : 'linux'; c.shell = shell;
+    c.cwd = dir; c.inputs = [{ id: shell, path: path.basename(input) }]; c.outputDirectory = 'render';
+    const occupied = path.join(dir, 'render', `${shell} clip20261106192344999.mkv`), output = path.join(dir, 'render', `${shell} clip20261106192345000.mkv`);
+    const plan = await buildPlan(importPreset({ 输出容器: 'mkv', 输出_自动命名选项: '附加_2位结尾序号', 输出命名_替代文本: `${shell} clip20261106192344998`, 视频参数_编码器_具体编码: 'libx264', 视频参数_比特率_控制方式: 'TPE', 视频参数_比特率_基础: '200k', 输出命名_保留修改时间: true, 元数据_要写入的信息: [{ 字段: 'title', 值: occupied }, { 字段: 'comment', 值: '<OutputFile>' }] }), c);
     assert.equal(plan.status, 'ready', JSON.stringify(plan.issues));
-    const occupied = path.join(dir, `${shell} clip20261106192344999.mkv`), output = path.join(dir, `${shell} clip20261106192345000.mkv`);
+    mkdirSync(path.dirname(occupied), { recursive: true });
     assert.equal(plan.tasks[0].output, occupied); writeFileSync(occupied, 'existing');
     run(shell, ['-c', renderPlan(plan).script]);
     assert.equal(readFileSync(occupied, 'utf8'), 'existing'); assert.ok(statSync(output).size > 100); assert.equal(statSync(output).mtimeMs, statSync(input).mtimeMs);
-    const probe = JSON.parse(run('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', output])); assert.equal(probe.streams[0].codec_name, 'h264');
+    const probe = JSON.parse(run('ffprobe', ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', output]));
+    assert.equal(probe.streams[0].codec_name, 'h264');
+    assert.equal(probe.format.tags.title, occupied);
+    assert.equal(probe.format.tags.COMMENT ?? probe.format.tags.comment, output);
   }
 });

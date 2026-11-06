@@ -1,10 +1,9 @@
-import type { CommandPlan, CommandStage, ExecutionContext, Issue, PlannedTask, RenderedPlan, Shell } from './types';
+import type { CommandPlan, CommandStage, Issue, RenderedPlan, Shell } from './types';
 import { windowsQuote } from './arguments';
-import { extension, splitTrailingSerial, withoutExtension } from './paths';
 import { sourceText, type Translate } from './i18n';
+import { posixPreflight, posixQuote, psPath, psQuote, windowsPreflight } from './preflight';
 
-export const posixQuote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
-export const psQuote = (s: string) => "'" + s.replaceAll("'", "''") + "'";
+export { posixQuote, psQuote };
 export function cmdQuote(s: string, batch = false): string {
   let result = windowsQuote(s).replace(/["&|<>()^]/g, '^$&');
   return result.replaceAll('%', batch ? '%%' : '^%');
@@ -17,50 +16,40 @@ export function renderCommand(stage: CommandStage, shell: Shell, batch = false, 
   return `& { $PSNativeCommandArgumentPassing = 'Standard'; & ${[executable, ...args].map(psQuote).join(' ')}; if ($LASTEXITCODE -ne 0) { throw (${psQuote(t('进程失败：'))} + $LASTEXITCODE) } }`;
 }
 function processStatement(executable: string, argumentExpression: string, t: Translate): string {
-  const exe = /[\\/]/.test(executable) ? `$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(${psQuote(executable)})` : psQuote(executable);
+  const exe = /[\\/]/.test(executable) ? psPath(psQuote(executable)) : psQuote(executable);
   return `$forgeStart = New-Object System.Diagnostics.ProcessStartInfo; $forgeStart.FileName = ${exe}; $forgeStart.Arguments = ${argumentExpression}; $forgeStart.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath; $forgeStart.UseShellExecute = $false; $forgeStart.CreateNoWindow = $true; $forgeStart.RedirectStandardOutput = $true; $forgeStart.RedirectStandardError = $true; $forgeProcess = [System.Diagnostics.Process]::Start($forgeStart); $forgeStdout = $forgeProcess.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput()); $forgeStderr = $forgeProcess.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError()); $forgeProcess.WaitForExit(); [void]$forgeStdout.GetAwaiter().GetResult(); [void]$forgeStderr.GetAwaiter().GetResult(); $forgeCode = $forgeProcess.ExitCode; $forgeProcess.Dispose(); if ($forgeCode -ne 0) { throw (${psQuote(t('进程失败：'))} + $forgeCode) }`;
 }
-// .NET file APIs use the process directory rather than PowerShell's current location.
-const psPath = (path: string) => `$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(${psQuote(path)})`;
-function psOutputExpression(value: string, output: string): string {
-  const chunks = value.split(output);
-  return chunks.length === 1 ? psQuote(value) : '(' + chunks.map(psQuote).join(' + $forgeOutput + ') + ')';
-}
-function needsOutput(task: PlannedTask): boolean { return task.stages.some(s => s.args.some(a => a.includes(task.output))); }
 function windowsStatements(plan: CommandPlan, legacy: boolean, t: Translate): string[] {
-  const lines = ["$ErrorActionPreference = 'Stop'", `$forgeReserved = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::${plan.context.platform === 'windows' ? 'OrdinalIgnoreCase' : 'Ordinal'})`];
+  const lines = ["$ErrorActionPreference = 'Stop'"];
   if (plan.context.cwd) { lines.push(`Set-Location -LiteralPath ${psQuote(plan.context.cwd)}`); }
-  for (const task of plan.tasks) {
-    const usesOutput = needsOutput(task);
+  lines.push(...windowsPreflight(plan, t));
+  for (const [index, task] of plan.tasks.entries()) {
+    const usesOutput = task.managedOutput;
     lines.push(`Write-Host ${psQuote(t('任务：') + task.input)}`);
-    if (usesOutput && task.directory) { lines.push(`[System.IO.Directory]::CreateDirectory(${psPath(task.directory)}) | Out-Null`); }
-    lines.push(`$forgeOutput = ${psQuote(task.output)}`);
-    if (usesOutput && [1, 2, 11, 12].includes(task.naming)) {
-      const numbered = task.naming >= 11, pathStem = withoutExtension(task.output);
-      const { base: numberedBase, digits } = splitTrailingSerial(pathStem);
-      const base = numbered ? numberedBase : pathStem.replace(/~\d+$/, '');
-      const width = Math.max(task.naming === 11 ? 2 : 3, digits.length);
-      const start = numbered ? `[bigint]${psQuote(digits || '1')}` : '1';
-      const suffix = numbered ? `$forgeNumber.ToString(${psQuote('0'.repeat(width))})` : "'~' + $forgeNumber.ToString()";
-      // Windows PowerShell 5.1 does not support the increment operator on BigInteger.
-      const increment = numbered ? '$forgeNumber = [bigint]::Add($forgeNumber, [bigint]1)' : '$forgeNumber++';
-      lines.push(`$forgeNumber = ${start}; while ((Test-Path -LiteralPath $forgeOutput) -or $forgeReserved.Contains($forgeOutput)) { $forgeOutput = ${psQuote(base)} + ${suffix} + ${psQuote(extension(task.output))}; ${increment} }`);
-      lines.push('[void]$forgeReserved.Add($forgeOutput)');
+    if (usesOutput) {
+      lines.push(`$forgeOutput = $forgeOutputs[${index}]`);
+      lines.push('[IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($forgeOutput)) | Out-Null');
+      lines.push(`Write-Host (${psQuote(t('输出：'))} + $forgeOutput)`);
     }
-    if (usesOutput) { lines.push(`Write-Host (${psQuote(t('输出：'))} + $forgeOutput)`); }
     for (const asset of task.assets) {
       const base64 = b64(new TextEncoder().encode(asset.content));
-      lines.push(`[System.IO.File]::WriteAllBytes(${psPath(asset.path)}, [System.Convert]::FromBase64String(${psQuote(base64)}))`);
+      lines.push(`[System.IO.File]::WriteAllBytes(${psPath(psQuote(asset.path))}, [System.Convert]::FromBase64String(${psQuote(base64)}))`);
     }
     for (const stage of task.stages) {
+      const args = stage.args.map((arg, i) => {
+        if (!usesOutput) { return psQuote(arg); }
+        if (i === stage.overwriteArg) { return `$forgeFlags[${index}]`; }
+        const parts = stage.outputArgs?.[i];
+        return parts ? '(' + parts.map(psQuote).join(' + $forgeOutput + ') + ')' : psQuote(arg);
+      });
       if (legacy) {
         // Rebuild Windows quoting after resolving output collisions. No string is interpreted as shell code.
-        const argv = stage.args.map(a => psOutputExpression(a, task.output)).join(', ');
+        const argv = args.join(', ');
         lines.push(`$forgeArgs = @(${argv})`);
         lines.push(String.raw`$forgeQuoted = @($forgeArgs | ForEach-Object { '"' + ([regex]::Replace([regex]::Replace($_, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1')) + '"' })`);
         lines.push(processStatement(stage.executable, "($forgeQuoted -join ' ' )", t));
       } else {
-        lines.push(`$PSNativeCommandArgumentPassing = 'Standard'; & ${psQuote(stage.executable)} ${stage.args.map(a => psOutputExpression(a, task.output)).join(' ')}; if ($LASTEXITCODE -ne 0) { throw (${psQuote(t('进程失败：'))} + $LASTEXITCODE) }`);
+        lines.push(`$PSNativeCommandArgumentPassing = 'Standard'; & ${psQuote(stage.executable)} ${args.join(' ')}; if ($LASTEXITCODE -ne 0) { throw (${psQuote(t('进程失败：'))} + $LASTEXITCODE) }`);
       }
     }
     if (usesOutput && Object.values(task.preserve).some(Boolean)) {
@@ -74,40 +63,24 @@ function b64(bytes: Uint8Array): string { let result = ''; for (let i = 0; i < b
 function posixScript(plan: CommandPlan, t: Translate): string {
   const lines = [`#!/usr/bin/env ${plan.context.shell === 'zsh' ? 'zsh' : 'bash'}`, t('# FFmpeg Command Forge · 任何阶段失败都会停止，保留已有输出。'), '('];
   const fail = ' || { forge_exit_code=$?; exit "$forge_exit_code"; }';
-  if (plan.context.cwd) { lines.push(`cd ${posixQuote(plan.context.cwd)}${fail}`); }
-  // This value is scoped to the subshell; Zsh reserves names such as "status".
-  lines.push('forge_reserved=()');
-  if (plan.tasks.some(task => task.naming >= 11 && needsOutput(task))) {
-    // Carry across decimal digits without depending on the shell's integer width.
-    lines.push('forge_increment_serial() {',
-      '  local prefix=$1 suffix= digit',
-      '  while [ "${prefix%9}" != "$prefix" ]; do',
-      '    prefix=${prefix%9}',
-      '    suffix=0$suffix',
-      '  done',
-      '  digit=${prefix#"${prefix%?}"}',
-      '  printf \'%s%s%s\' "${prefix%?}" "$(( ${digit:-0} + 1 ))" "$suffix"',
-      '}');
-  }
-  for (const task of plan.tasks) {
-    const usesOutput = needsOutput(task);
+  if (plan.context.cwd) { lines.push(`cd -- ${posixQuote(plan.context.cwd)}${fail}`); }
+  lines.push(...posixPreflight(plan, t));
+  for (const [index, task] of plan.tasks.entries()) {
+    const usesOutput = task.managedOutput;
     lines.push(`printf '%s\n' ${posixQuote(t('任务：') + task.input)}`);
-    if (usesOutput && task.directory) { lines.push(`mkdir -p ${posixQuote(task.directory)}${fail}`); }
-    lines.push(`forge_output=${posixQuote(task.output)}`);
-    if (usesOutput && [1, 2, 11, 12].includes(task.naming)) {
-      const numbered = task.naming >= 11, pathStem = withoutExtension(task.output);
-      const { base: numberedBase, digits } = splitTrailingSerial(pathStem);
-      const base = numbered ? numberedBase : pathStem.replace(/~\d+$/, '') + '~';
-      const width = Math.max(task.naming === 11 ? 2 : 3, digits.length);
-      const start = numbered ? (digits || '1').padStart(width, '0') : '1';
-      lines.push(`forge_number=${start}`, 'while :; do', '  forge_taken=0', '  for forge_previous in "${forge_reserved[@]}"; do [ "$forge_previous" = "$forge_output" ] && forge_taken=1; done', '  if [ ! -e "$forge_output" ] && [ "$forge_taken" -eq 0 ]; then break; fi');
-      lines.push(`  forge_output=${posixQuote(base)}"$forge_number"${posixQuote(extension(task.output))}`);
-      lines.push(numbered ? '  forge_number=$(forge_increment_serial "$forge_number")' : '  forge_number=$((forge_number + 1))', 'done', 'forge_reserved+=("$forge_output")');
+    if (usesOutput) {
+      lines.push(`forge_output=$forge_path_${index}`);
+      if (task.directory) { lines.push(`mkdir -p -- ${posixQuote(task.directory)}${fail}`); }
+      lines.push(`printf '%s%s\\n' ${posixQuote(t('输出：'))} "$forge_output"`);
     }
-    if (usesOutput) { lines.push(`printf ${posixQuote(t('输出：') + '%s\n')} "$forge_output"`); }
     for (const asset of task.assets) { lines.push(`printf '%s' ${posixQuote(asset.content)} > ${posixQuote(asset.path)}${fail}`); }
     for (const stage of task.stages) {
-      const argv = stage.args.map(a => a.split(task.output).map(posixQuote).join('"$forge_output"')).join(' ');
+      const argv = stage.args.map((arg, i) => {
+        if (!usesOutput) { return posixQuote(arg); }
+        if (i === stage.overwriteArg) { return `"$forge_flag_${index}"`; }
+        const parts = stage.outputArgs?.[i];
+        return parts ? parts.map(posixQuote).join('"$forge_output"') : posixQuote(arg);
+      }).join(' ');
       lines.push(`${posixQuote(stage.executable)} ${argv}${fail}`);
     }
     if (usesOutput && (task.preserve.modification || task.preserve.access)) { lines.push(`touch ${task.preserve.modification && task.preserve.access ? '' : task.preserve.modification ? '-m ' : '-a '}-r ${posixQuote(task.input)} "$forge_output"${fail}`); }
