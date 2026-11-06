@@ -52,6 +52,7 @@ function mountApp(): void {
       <button id="import" title="${presetHint()}">${t('导入预设')}</button>
       <button id="export" title="${presetHint()}">${t('导出预设')}</button>
       <button id="workspace" class="ghost optional">${t('工作区')}</button>
+      <button id="more" class="ghost" aria-haspopup="dialog">${t('更多')}</button>
       <button id="language" class="ghost" aria-haspopup="dialog" aria-label="${t('语言')}" title="${t('语言')}">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false">
           <circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>
@@ -572,26 +573,43 @@ function selectLanguage(preference: Locale | null): void {
   $('#language').focus();
   schedule();
 }
+function newWorkspace(): void {
+  replacePreset(); context = defaultContext(); navigate('任务与环境'); schedule(); toast(t('已创建新方案'));
+}
+
+function openWorkspaceDialog(): void {
+  const dialog = $<HTMLDialogElement>('#dialog'), body = $('#dialog-body'); $('#dialog-title').textContent = t('工作区'); body.replaceChildren();
+  const box = el('div', 'stack'); box.style.marginTop = '20px';
+  const error = el('p', 'error-message'); error.setAttribute('role', 'alert'); error.hidden = true;
+  box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')),
+    button(t('下载工作区'), () => save(JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }, null, 2), 'Forge-workspace.json', 'application/json')),
+    button(t('导入工作区'), () => pick('.json', async file => {
+      try { loadWorkspace(await file.text()); }
+      catch (cause) { error.textContent = cause instanceof Error ? cause.message : String(cause); error.hidden = false; return; }
+      schedule(); renderEditor(); renderNav(); dialog.close(); toast(t('工作区已恢复'));
+    })), error);
+  body.append(box); dialog.showModal();
+}
+
+function openMoreDialog(): void {
+  const dialog = $<HTMLDialogElement>('#dialog');
+  $('#dialog-title').textContent = t('更多操作');
+  const actions = row(button(t('新建方案'), () => { dialog.close(); newWorkspace(); }),
+    button(t('工作区'), () => { dialog.close(); openWorkspaceDialog(); }));
+  actions.classList.add('wrap', 'language-options');
+  $('#dialog-body').replaceChildren(actions);
+  dialog.showModal();
+}
+
 function bindApp(): void {
   $('#language').onclick = openLanguageDialog;
   $('#dialog-close').onclick = () => $<HTMLDialogElement>('#dialog').close();
-  $('#new').onclick = () => { replacePreset(); context = defaultContext(); navigate('任务与环境'); schedule(); toast(t('已创建新方案')); };
+  $('#new').onclick = newWorkspace;
+  $('#workspace').onclick = openWorkspaceDialog;
+  $('#more').onclick = openMoreDialog;
   $('#import').onclick = () => pick('.json', async f => { replacePreset(await f.text()); context.confirmedPaths = []; schedule(); renderEditor(); toast(t('已导入：{0}', f.name)); });
   $('#export').onclick = () => save(exportPreset(doc), 'FFmpegFreeUI-v6.json', 'application/json');
   $('#theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; cached(); };
-  $('#workspace').onclick = () => {
-    const dialog = $<HTMLDialogElement>('#dialog'), body = $('#dialog-body'); $('#dialog-title').textContent = t('工作区'); body.replaceChildren();
-    const box = el('div', 'stack'); box.style.marginTop = '20px';
-    const error = el('p', 'error-message'); error.setAttribute('role', 'alert'); error.hidden = true;
-    box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')),
-      button(t('下载工作区'), () => save(JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }, null, 2), 'Forge-workspace.json', 'application/json')),
-      button(t('导入工作区'), () => pick('.json', async file => {
-        try { loadWorkspace(await file.text()); }
-        catch (cause) { error.textContent = cause instanceof Error ? cause.message : String(cause); error.hidden = false; return; }
-        schedule(); renderEditor(); renderNav(); dialog.close(); toast(t('工作区已恢复'));
-      })), error);
-    body.append(box); dialog.showModal();
-  };
   $('#copy-preview').onclick = () => { const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };
   $('#copy-final').onclick = () => { if (currentRendered?.copyable) { void copy(currentRendered.script); } };
   $('#download-script').onclick = () => { if (currentRendered) { const { content, name } = currentRendered.download; save(content, name, 'text/plain;charset=utf-8'); } };
