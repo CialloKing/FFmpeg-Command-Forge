@@ -6,35 +6,45 @@ import { buildPlan, defaultContext, resolvedInput } from './plan';
 import { downloadableScript, renderCommand, renderPlan } from './render';
 import { normalizeOrder, subtitleCandidates } from './filters';
 import { filename } from './paths';
-import { detectLocale, optionLabel, parameterLabel, presetText, translator } from './i18n';
+import { detectLocale, optionLabel, parameterLabel, presetText, translator, type Locale } from './i18n';
 import type { CommandPlan, ExecutionContext, InputTask, Preset, PresetDocument, RenderedPlan, Schema, Shell } from './types';
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?: string): HTMLElementTagNameMap[K] { const node = document.createElement(tag); node.className = className; if (text !== undefined) { node.textContent = text; } return node; }
 function button(text: string, action: () => void, cls = ''): HTMLButtonElement { const b = el('button', cls, text); b.type = 'button'; b.onclick = action; return b; }
 function row(...nodes: (Node | string)[]): HTMLDivElement { const r = el('div', 'row'); r.append(...nodes); return r; }
-const locale = detectLocale([...navigator.languages, navigator.language]);
-const t = translator(locale);
+const languageKey = 'ffmpeg-command-forge.language';
+const browserLocale = () => detectLocale([...navigator.languages, navigator.language]);
+function savedLocale(): Locale | null {
+  try {
+    const saved = localStorage.getItem(languageKey);
+    return saved === 'zh-CN' || saved === 'en' ? saved : null;
+  } catch { return null; }
+}
+let languagePreference = savedLocale();
+let locale = languagePreference ?? browserLocale();
+let t = translator(locale);
 const readPreset = (input?: string | Preset) => importPreset(input, t);
-const labels: Record<string, string> = { powershell: 'PowerShell 7.3+', powershell5: 'Windows PowerShell 5.1', cmd: t('CMD（延迟展开关闭）'), bash: 'Bash', zsh: 'Zsh' };
+const labels: Record<Shell, string> = { powershell: 'PowerShell 7.3+', powershell5: 'Windows PowerShell 5.1', cmd: 'CMD（延迟展开关闭）', bash: 'Bash', zsh: 'Zsh' };
 const cacheKey = 'ffmpeg-command-forge.workspace.v1', libraryKey = 'ffmpeg-command-forge.presets.v1';
 const presetBaseline = `3FUI ${upstreamVersion}`;
 const presetFormat = `v${data.defaults.预设文件版本} JSON`;
-const presetHint = t('预设兼容基线 {0} · {1}', presetBaseline, presetFormat);
+const presetHint = () => t('预设兼容基线 {0} · {1}', presetBaseline, presetFormat);
 let doc: PresetDocument = readPreset(), context: ExecutionContext = defaultContext(), selected = '任务与环境', query = '', previewTab = 'commands', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
 let theme = 'dark';
 let library: { name: string; preset: Preset }[] = [];
-const app = $('#app');
-document.documentElement.lang = locale;
-$<HTMLMetaElement>('meta[name=description]').content = t('离线 FFmpeg 命令生成器，预设兼容基线为 FFmpegFreeUI（3FUI）{0}，采用 v6 JSON 格式。', upstreamVersion);
-app.innerHTML = `
+function mountApp(): void {
+  document.documentElement.lang = locale;
+  $<HTMLMetaElement>('meta[name=description]').content = t('离线 FFmpeg 命令生成器，预设兼容基线为 FFmpegFreeUI（3FUI）{0}，采用 v6 JSON 格式。', upstreamVersion);
+  $('#app').innerHTML = `
   <header class="header">
     <div class="brand"><div class="brandmark" aria-hidden="true">⌘</div><div><div class="brand-name">FFmpeg Command Forge</div><div class="brand-subtitle">BUILD THE COMMAND. OWN THE FRAME.</div></div></div>
     <div class="toolbar">
       <button id="new" class="ghost optional">${t('新建方案')}</button>
-      <button id="import" title="${presetHint}">${t('导入预设')}</button>
-      <button id="export" title="${presetHint}">${t('导出预设')}</button>
+      <button id="import" title="${presetHint()}">${t('导入预设')}</button>
+      <button id="export" title="${presetHint()}">${t('导出预设')}</button>
       <button id="workspace" class="ghost optional">${t('工作区')}</button>
+      <button id="language" class="ghost" aria-haspopup="dialog">${t('语言')}</button>
       <button id="theme" class="ghost" aria-label="${t('切换明暗主题')}">◐</button>
     </div>
   </header>
@@ -59,7 +69,11 @@ app.innerHTML = `
     </aside>
   </div>
   <div id="toast" role="status" hidden></div>
-  <dialog id="dialog"><div class="row between"><h3 id="dialog-title"></h3><button id="dialog-close" class="ghost small" aria-label="${t('关闭')}">✕</button></div><div id="dialog-body"></div></dialog>`;
+  <dialog id="dialog" aria-labelledby="dialog-title"><div class="row between"><h3 id="dialog-title"></h3><button id="dialog-close" class="ghost small" aria-label="${t('关闭')}">✕</button></div><div id="dialog-body"></div></dialog>`;
+  bindApp();
+  renderNav();
+  renderEditor();
+}
 
 function toast(message: string): void { const t = $('#toast'); t.textContent = message; t.className = 'toast'; t.hidden = false; setTimeout(() => { t.hidden = true; }, 3800); }
 function save(content: string | Uint8Array, name: string, type = 'application/octet-stream'): void {
@@ -102,6 +116,7 @@ async function recompute(): Promise<void> {
     const plan = await buildPlan(doc, context, t); if (id !== generation) { return; }
     currentPlan = plan; currentRendered = renderPlan(plan, t); renderOutput();
   } catch (error) {
+    if (id !== generation) { return; }
     currentPlan = undefined; currentRendered = undefined; $('#status-title').textContent = t('无法构建'); $('#status-caption').textContent = t('请检查参数或重新导入预设'); $('#command').textContent = String(error); $('#copy-final').setAttribute('disabled', '');
   }
 }
@@ -221,7 +236,7 @@ function choiceInput(options: Choice[], value: string, onChange: (v: string) => 
   return field;
 }
 function heading(title: string, number: string): HTMLDivElement { const h = el('div', 'section-line'); h.append(el('span', '', number), el('h3', '', title)); return h; }
-const parameterHints: Record<string, string> = { 视频参数_编码器_具体编码: '-c:v', 视频参数_编码器_编码预设: '-preset', 视频参数_帧速率: '-r', 视频参数_帧速率模式: '-fps_mode', 视频参数_分辨率: 'scale / scale_cuda', 视频参数_分辨率_裁剪滤镜参数: 'crop', 视频参数_比特率_基础: '-b:v', 视频参数_比特率_最低值: '-minrate', 视频参数_比特率_最高值: '-maxrate', 视频参数_比特率_缓冲区: '-bufsize', 视频参数_色彩管理_像素格式: '-pix_fmt', 音频参数_编码器_代号: t('-c:a · 使用 3FUI 私有 ID'), 音频参数_比特率: '-b:a', 音频参数_采样率: '-ar', 音频参数_位深度: '-sample_fmt', 解码参数_解码器: '-hwaccel', 解码参数_解码数据格式: '-hwaccel_output_format', 剪辑区间_入点: t('-ss / trim · 建议使用 00:00:10 或 10.0'), 剪辑区间_出点: t('-to / trim · 建议使用 00:00:20 或 20.0'), 输出_自动命名选项: t('自动命名与冲突处理包含在完整脚本中'), 自定义参数_完全自己写: t('覆盖自动生成的 FFmpeg 参数；按原版 Windows 参数语法解析，不执行 Shell 代码') };
+const parameterHints: Record<string, string> = { 视频参数_编码器_具体编码: '-c:v', 视频参数_编码器_编码预设: '-preset', 视频参数_帧速率: '-r', 视频参数_帧速率模式: '-fps_mode', 视频参数_分辨率: 'scale / scale_cuda', 视频参数_分辨率_裁剪滤镜参数: 'crop', 视频参数_比特率_基础: '-b:v', 视频参数_比特率_最低值: '-minrate', 视频参数_比特率_最高值: '-maxrate', 视频参数_比特率_缓冲区: '-bufsize', 视频参数_色彩管理_像素格式: '-pix_fmt', 音频参数_编码器_代号: '-c:a · 使用 3FUI 私有 ID', 音频参数_比特率: '-b:a', 音频参数_采样率: '-ar', 音频参数_位深度: '-sample_fmt', 解码参数_解码器: '-hwaccel', 解码参数_解码数据格式: '-hwaccel_output_format', 剪辑区间_入点: '-ss / trim · 建议使用 00:00:10 或 10.0', 剪辑区间_出点: '-to / trim · 建议使用 00:00:20 或 20.0', 输出_自动命名选项: '自动命名与冲突处理包含在完整脚本中', 自定义参数_完全自己写: '覆盖自动生成的 FFmpeg 参数；按原版 Windows 参数语法解析，不执行 Shell 代码' };
 const familyHints: [string, string][] = [
   ['视频参数_编码器_配置文件', '-profile'], ['视频参数_编码器_场景优化', '-tune'], ['视频参数_编码器_图片', '-q:v'], ['视频参数_编码器_gpu', '-gpu'], ['视频参数_编码器_threads', '-threads'], ['解码参数_CPU', '-threads'],
   ['视频参数_分辨率自动', 'scale / scale_cuda · w / h / flags / interp_algo'], ['视频参数_抽帧', 'mpdecimate · max / keep / hi / lo / frac'], ['视频参数_插帧', 'minterpolate · fps / mi_mode / me_mode / me / mc_mode'], ['视频参数_NV_FRUC', 'fruc_vulkan · fps / perf / grid'], ['视频参数_动态模糊', 'tmix · frames / weights / scale / planes'],
@@ -229,7 +244,7 @@ const familyHints: [string, string][] = [
   ['视频参数_烧录字幕', 'subtitles / ass · filename / stream_index / fontsdir / force_style'], ['视频参数_色彩管理', 'colorspace / zscale / libplacebo / eq · -colorspace / -color_primaries / -color_trc / -color_range'], ['视频参数_质量控制', '-crf / -cq / -qp / -rc'], ['视频参数_比特率_控制', '-rc / -pass / -passlogfile'], ['音频参数_质量', '-q:a / -compression_level'], ['音频参数_声道', 'aformat · channel_layouts'], ['音频参数_响度', 'loudnorm · I / LRA / TP'],
   ['流控制_', '-map / -c:s / -map_metadata / -map_chapters'], ['元数据_', '-metadata'], ['章节_', '-f ffmetadata / -map_chapters'], ['附件_', '-attach / -metadata:s:t / -disposition'], ['自定义参数_视频滤镜', '-vf / -filter:v / -filter_complex'], ['自定义参数_音频滤镜', '-af / -filter:a / -filter_complex']
 ];
-const fieldHint = (key: string) => parameterHints[key] || familyHints.find(([prefix]) => key.startsWith(prefix))?.[1] || '';
+const fieldHint = (key: string) => t(parameterHints[key] || familyHints.find(([prefix]) => key.startsWith(prefix))?.[1] || '');
 function parameterField(key: string, spec: Schema, value: any, path: (string | number)[]): HTMLElement {
   const label = parameterLabel(locale, key);
   const hint = path.length === 1 ? fieldHint(key) || (locale === 'zh-CN' ? key : '') : '';
@@ -302,7 +317,7 @@ function filterOrder(): HTMLElement {
 function environment(): HTMLElement {
   const content = el('div', 'stack');
   const card = el('div', 'card stack'), grid = el('div', 'grid2');
-  grid.append(labeled(t('目标系统'), choiceInput([['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']], context.platform, v => { context.platform = v as ExecutionContext['platform']; context.shell = v === 'windows' ? 'powershell' : v === 'macos' ? 'zsh' : 'bash'; context.confirmedPaths = []; context.inputs.forEach(t => { t.probe = undefined; t.sidecarsConfirmed = false; }); schedule(); renderEditor(); })), labeled(t('执行终端'), choiceInput(Object.entries(labels), context.shell, v => { context.shell = v as Shell; schedule(); })));
+  grid.append(labeled(t('目标系统'), choiceInput([['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']], context.platform, v => { context.platform = v as ExecutionContext['platform']; context.shell = v === 'windows' ? 'powershell' : v === 'macos' ? 'zsh' : 'bash'; context.confirmedPaths = []; context.inputs.forEach(t => { t.probe = undefined; t.sidecarsConfirmed = false; }); schedule(); renderEditor(); })), labeled(t('执行终端'), choiceInput(Object.entries(labels).map(([value, label]) => [value, t(label)]), context.shell, v => { context.shell = v as Shell; schedule(); })));
   grid.append(labeled(t('FFmpeg 程序'), textInput(context.ffmpeg, v => { context.ffmpeg = v; schedule(); }), t('默认从 PATH 查找，也可填写完整路径')), labeled(t('ffprobe 程序'), textInput(context.ffprobe, v => { context.ffprobe = v; schedule(); })));
   grid.append(labeled(t('工作目录'), textInput(context.cwd, v => { context.cwd = v; schedule(); }, t('例如 {0}', context.platform === 'windows' ? 'D:\\Media' : '/home/user/Media')), t('相对路径将在此目录下解释')), labeled(t('本次输出目录'), textInput(context.outputDirectory, v => { context.outputDirectory = v; schedule(); }, t('留空时使用预设或输入文件目录'))));
   card.append(grid); content.append(heading(t('执行环境'), '01'), card, heading(t('输入文件'), '02'));
@@ -376,7 +391,7 @@ function presetLibrary(): HTMLElement {
   const saved = el('div', 'card stack'), name = textInput('', () => {}, t('为当前预设命名'));
   saved.append(row(name, button(t('保存副本'), () => { if (!name.value.trim()) { toast(t('请先填写预设名称')); return; } library.push({ name: name.value.trim(), preset: clone(doc.raw) }); persistLibrary(); renderEditor(); }, 'small')));
   library.forEach((p, i) => { const r = el('div', 'saved-row'); r.append(el('span', 'grow', p.name), button(t('应用'), () => { doc = readPreset(p.preset); schedule(); toast(t('已应用：{0}', p.name)); }, 'small'), button(t('导出'), () => save(JSON.stringify(p.preset, null, 2), p.name + '.json', 'application/json'), 'small ghost'), button('×', () => { library.splice(i, 1); persistLibrary(); renderEditor(); }, 'small ghost')); saved.append(r); });
-  saved.append(el('small', '', t('浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。'))); content.append(saved, heading(t('原生预设'), '04'), button(t('查看或编辑完整 JSON'), () => openTextDialog(presetHint, exportPreset(doc), text => { doc = readPreset(text); schedule(); renderEditor(); }), 'ghost')); return content;
+  saved.append(el('small', '', t('浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。'))); content.append(saved, heading(t('原生预设'), '04'), button(t('查看或编辑完整 JSON'), () => openTextDialog(presetHint(), exportPreset(doc), text => { doc = readPreset(text); schedule(); renderEditor(); }), 'ghost')); return content;
 }
 function persistLibrary(): void { try { localStorage.setItem(libraryKey, JSON.stringify(library)); } catch { toast(t('浏览器存储不可用，请导出 JSON 保存')); } }
 function renderEditor(): void {
@@ -401,12 +416,12 @@ function renderParameterList(): void {
 }
 function renderOutput(): void {
   const plan = currentPlan!, rendered = currentRendered!, issues = [...plan.issues, ...rendered.issues], incompatible = issues.some(x => x.level === 'error'), ready = plan.status === 'ready' && !incompatible;
-  $('#task-summary').textContent = t('{0} 个输入 · {1} 个执行阶段 · {2}', plan.tasks.length, plan.tasks.reduce((n, t) => n + t.stages.length, 0), labels[context.shell]);
+  $('#task-summary').textContent = t('{0} 个输入 · {1} 个执行阶段 · {2}', plan.tasks.length, plan.tasks.reduce((n, t) => n + t.stages.length, 0), t(labels[context.shell]));
   $('#status-title').textContent = incompatible ? t('不兼容') : ready ? t('命令已就绪') : t('待补充信息'); $('#status-caption').textContent = incompatible ? t('请处理以下兼容问题') : ready ? t('复制完整脚本到所选终端执行') : t('完成路径、资源或媒体信息确认'); $('#status-icon').textContent = ready ? '✓' : incompatible ? '×' : '◌'; $('#status-icon').style.color = ready ? 'var(--accent)' : incompatible ? 'var(--error)' : 'var(--orange)';
   const tabs = $('#preview-tabs'); tabs.replaceChildren();
   for (const [id, name] of [['commands', t('命令')], ['stages', t('阶段')], ['graph', t('滤镜图')], ['args', t('参数')], ['script', t('完整脚本')]]) { tabs.append(button(name, () => { previewTab = id; renderOutput(); }, 'tab' + (previewTab === id ? ' active' : ''))); }
   const previews: Record<string, string> = { script: rendered.script, commands: rendered.commands, stages: rendered.stages, graph: plan.tasks.flatMap(t => t.stages.filter(s => s.graph).map(s => `# ${s.name}\n${s.graph}`)).join('\n\n') || t('此任务未使用复杂滤镜图。线性滤镜可在参数视图查看。'), args: JSON.stringify(plan.tasks.map(task => ({ [t('输入')]: task.input, [t('输出')]: task.output, [t('阶段')]: task.stages.map(s => ({ [t('名称')]: s.name, [t('程序')]: s.executable, [t('参数')]: s.args, [t('映射')]: s.maps })) })), null, 2) };
-  $('#command').textContent = previews[previewTab]; $('#terminal-title').textContent = (ready ? '' : 'PREVIEW · ') + labels[context.shell].toUpperCase();
+  $('#command').textContent = previews[previewTab]; $('#terminal-title').textContent = (ready ? '' : 'PREVIEW · ') + t(labels[context.shell]).toUpperCase();
   for (const id of ['copy-final', 'download-script', 'download-zip']) { $<HTMLButtonElement>('#' + id).disabled = !ready; }
   const issueBox = $('#issues'); issueBox.replaceChildren();
   if (issues.length) { issueBox.append(el('h3', '', t('需要关注'))); issues.forEach(issue => issueBox.append(el('div', 'issue ' + issue.level, issue.message))); }
@@ -420,23 +435,60 @@ function openTextDialog(title: string, text: string, apply: (value: string) => v
   const dialog = $<HTMLDialogElement>('#dialog'), body = $('#dialog-body'); $('#dialog-title').textContent = title; body.replaceChildren();
   const area = el('textarea', 'mono'); area.value = text; area.setAttribute('aria-label', title); const error = el('p', 'error-message'); body.append(area, error, button(t('应用'), () => { try { apply(area.value); dialog.close(); } catch (e) { error.textContent = e instanceof Error ? e.message : String(e); } }, 'primary')); dialog.showModal();
 }
-$('#dialog-close').onclick = () => $<HTMLDialogElement>('#dialog').close();
-$('#new').onclick = () => { doc = readPreset(); context = defaultContext(); navigate('任务与环境'); schedule(); toast(t('已创建新方案')); };
-$('#import').onclick = () => pick('.json', async f => { doc = readPreset(await f.text()); context.confirmedPaths = []; schedule(); renderEditor(); toast(t('已导入：{0}', f.name)); });
-$('#export').onclick = () => save(exportPreset(doc), 'FFmpegFreeUI-v6.json', 'application/json');
-$('#theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; cached(); };
-$('#workspace').onclick = () => {
-  const dialog = $<HTMLDialogElement>('#dialog'), body = $('#dialog-body'); $('#dialog-title').textContent = t('工作区'); body.replaceChildren();
-  const box = el('div', 'stack'); box.style.marginTop = '20px'; box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')), button(t('下载工作区'), () => save(JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }, null, 2), 'Forge-workspace.json', 'application/json')), button(t('导入工作区'), () => pick('.json', async f => { loadWorkspace(JSON.parse(await f.text())); schedule(); renderEditor(); renderNav(); dialog.close(); toast(t('工作区已恢复')); }))); body.append(box); dialog.showModal();
-};
-$('#copy-preview').onclick = () => { const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };
-$('#copy-final').onclick = () => { if (currentRendered) { void copy(currentRendered.script); } };
-$('#download-script').onclick = () => { if (currentPlan && currentRendered) { const script = downloadableScript(currentPlan, currentRendered, t); save(currentRendered.filename.endsWith('.ps1') ? '\uFEFF' + script : script, currentRendered.filename, 'text/plain;charset=utf-8'); } };
-$('#download-zip').onclick = () => {
-  if (!currentPlan || !currentRendered) { return; }
-  const files: Record<string, Uint8Array> = { [currentRendered.filename]: strToU8((currentRendered.filename.endsWith('.ps1') ? '\uFEFF' : '') + downloadableScript(currentPlan, currentRendered, t)), 'preset-v6.json': strToU8(exportPreset(doc)), 'README.txt': strToU8(['FFmpeg Command Forge', t('终端：{0}', labels[context.shell]), t('先检查脚本，然后在所选终端运行。输入媒体不包含在任务包内。'), t('Windows CMD 辅助脚本使用系统 PowerShell。'), t('模板副本位于 resources，脚本将内容写入计划中的实际路径。'), '', ''].join('\n') + currentPlan.tasks.map(t => `${t.input}\n=> ${t.output}`).join('\n\n')) };
-  currentRendered.assets.forEach((asset, i) => { files['resources/' + String(i + 1).padStart(3, '0') + '-' + filename(asset.path)] = strToU8(asset.content); });
-  save(zipSync(files), 'Forge-task.zip', 'application/zip');
-};
+function openLanguageDialog(): void {
+  const dialog = $<HTMLDialogElement>('#dialog');
+  const choices: [Locale | null, string][] = [[null, t('跟随浏览器')], ['zh-CN', '简体中文'], ['en', 'English']];
+  const controls = choices.map(([preference, label]) => {
+    const current = preference === languagePreference;
+    const choice = button(label, () => { dialog.close(); selectLanguage(preference); }, current ? 'primary' : '');
+    choice.lang = preference ?? locale;
+    choice.setAttribute('aria-pressed', String(current));
+    return choice;
+  });
+  const options = row(...controls);
+  options.classList.add('wrap', 'language-options');
+  $('#dialog-title').textContent = t('语言');
+  $('#dialog-body').replaceChildren(options);
+  dialog.showModal();
+}
+function selectLanguage(preference: Locale | null): void {
+  languagePreference = preference;
+  try {
+    if (preference) { localStorage.setItem(languageKey, preference); }
+    else { localStorage.removeItem(languageKey); }
+  } catch { /* The language can still be changed for this page when storage is unavailable. */ }
+  const nextLocale = preference ?? browserLocale();
+  if (nextLocale === locale) { return; }
+  locale = nextLocale;
+  t = translator(locale);
+  // Rebuild localized diagnostics from the original preset while keeping the current task in memory.
+  doc = readPreset(doc.raw);
+  mountApp();
+  $('#language').focus();
+  schedule();
+}
+function bindApp(): void {
+  $('#language').onclick = openLanguageDialog;
+  $('#dialog-close').onclick = () => $<HTMLDialogElement>('#dialog').close();
+  $('#new').onclick = () => { doc = readPreset(); context = defaultContext(); navigate('任务与环境'); schedule(); toast(t('已创建新方案')); };
+  $('#import').onclick = () => pick('.json', async f => { doc = readPreset(await f.text()); context.confirmedPaths = []; schedule(); renderEditor(); toast(t('已导入：{0}', f.name)); });
+  $('#export').onclick = () => save(exportPreset(doc), 'FFmpegFreeUI-v6.json', 'application/json');
+  $('#theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; cached(); };
+  $('#workspace').onclick = () => {
+    const dialog = $<HTMLDialogElement>('#dialog'), body = $('#dialog-body'); $('#dialog-title').textContent = t('工作区'); body.replaceChildren();
+    const box = el('div', 'stack'); box.style.marginTop = '20px'; box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')), button(t('下载工作区'), () => save(JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }, null, 2), 'Forge-workspace.json', 'application/json')), button(t('导入工作区'), () => pick('.json', async f => { loadWorkspace(JSON.parse(await f.text())); schedule(); renderEditor(); renderNav(); dialog.close(); toast(t('工作区已恢复')); }))); body.append(box); dialog.showModal();
+  };
+  $('#copy-preview').onclick = () => { const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };
+  $('#copy-final').onclick = () => { if (currentRendered) { void copy(currentRendered.script); } };
+  $('#download-script').onclick = () => { if (currentPlan && currentRendered) { const script = downloadableScript(currentPlan, currentRendered, t); save(currentRendered.filename.endsWith('.ps1') ? '\uFEFF' + script : script, currentRendered.filename, 'text/plain;charset=utf-8'); } };
+  $('#download-zip').onclick = () => {
+    if (!currentPlan || !currentRendered) { return; }
+    const files: Record<string, Uint8Array> = { [currentRendered.filename]: strToU8((currentRendered.filename.endsWith('.ps1') ? '\uFEFF' : '') + downloadableScript(currentPlan, currentRendered, t)), 'preset-v6.json': strToU8(exportPreset(doc)), 'README.txt': strToU8(['FFmpeg Command Forge', t('终端：{0}', t(labels[context.shell])), t('先检查脚本，然后在所选终端运行。输入媒体不包含在任务包内。'), t('Windows CMD 辅助脚本使用系统 PowerShell。'), t('模板副本位于 resources，脚本将内容写入计划中的实际路径。'), '', ''].join('\n') + currentPlan.tasks.map(t => `${t.input}\n=> ${t.output}`).join('\n\n')) };
+    currentRendered.assets.forEach((asset, i) => { files['resources/' + String(i + 1).padStart(3, '0') + '-' + filename(asset.path)] = strToU8(asset.content); });
+    save(zipSync(files), 'Forge-task.zip', 'application/zip');
+  };
+}
 
-document.documentElement.dataset.theme = theme; renderNav(); renderEditor(); void recompute();
+document.documentElement.dataset.theme = theme;
+mountApp();
+void recompute();

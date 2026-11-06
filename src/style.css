@@ -10,6 +10,7 @@ input,textarea{width:100%;border:1px solid var(--border);border-radius:6px;backg
 @media(max-width:1130px){.workspace{grid-template-columns:174px minmax(360px,1fr)}.output{grid-column:2;height:auto;position:static;border-top:1px solid var(--border);border-left:0}.sidebar{grid-row:1/3;height:calc(100vh - 76px)}.editor{padding:25px}.terminal pre{max-height:320px}.header{padding:0 20px}.toolbar .optional{display:none}}
 @media(max-width:680px){.header{height:auto;min-height:72px;padding:15px;gap:12px;flex-wrap:wrap}.brand-name{font-size:14px}.brandmark{width:32px;height:32px;font-size:21px}.brand-subtitle{font-size:8px}.toolbar{margin-left:auto;gap:5px}.toolbar button{padding:7px 9px;font-size:11px}.workspace{display:flex;flex-direction:column;min-height:0}.sidebar{height:auto;position:static;display:flex;flex-direction:row;overflow:auto;border-right:0;border-bottom:1px solid var(--border);padding:9px;gap:4px}.nav-item{white-space:nowrap;font-size:12px;padding:8px 12px}.nav-caption,.sidebar-foot,.sidebar .number{display:none}.editor{padding:22px 15px}.output{padding:22px 15px}.parameter-fields,.grid2{grid-template-columns:1fr}.field.wide{grid-column:auto}.card{padding:15px}.editor-head{margin-bottom:17px}.output-footer{margin-top:10px}}
 .output-footer a { display:inline-flex; align-items:center; min-height:24px; font-size:12px; }
+.language-options { margin-top:16px; }
 .choice { position:relative; min-width:0; }
 .choice input { padding-inline-end:38px; }
 .choice-toggle {

@@ -107,6 +107,17 @@ assert.equal(JSON.parse(await readFile(await (await englishDownload).path(), 'ut
 await enPage.getByRole('textbox', { name: 'Search all parameters' }).fill('pixel format');
 await enPage.getByLabel('Color management / Pixel format', { exact: true }).waitFor();
 assert.equal(await enPage.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, 'English mobile layout should not overflow');
+await enPage.getByRole('textbox', { name: 'Search all parameters' }).fill('-pix_fmt');
+await enPage.getByRole('button', { name: 'Language', exact: true }).click();
+await enPage.getByRole('button', { name: '简体中文', exact: true }).click();
+await enPage.getByLabel('色彩管理 / 像素格式', { exact: true }).waitFor();
+assert.equal(await enPage.locator('html').getAttribute('lang'), 'zh-CN');
+await enPage.reload();
+assert.equal(await enPage.getByLabel('输入文件 1 路径').inputValue(), 'D:\\Media\\example.mp4');
+await enPage.getByRole('button', { name: '语言', exact: true }).click();
+await enPage.getByRole('button', { name: '跟随浏览器', exact: true }).click();
+await enPage.getByRole('heading', { name: 'Start with your media' }).waitFor();
+assert.equal(await enPage.getByLabel('Input file 1 path').inputValue(), 'D:\\Media\\example.mp4');
 assert.deepEqual(errors, []); assert.deepEqual(network, []);
 await english.close();
 await browser.close();

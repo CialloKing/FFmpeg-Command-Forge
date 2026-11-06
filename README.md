@@ -6,7 +6,7 @@
 
 访问 [FFmpeg Command Forge 在线版](https://ffmpeg-command-forge.com/)。网页在浏览器中生成命令，FFmpeg 仍需在本机终端执行。
 
-界面支持简体中文和英文，打开时按浏览器的语言偏好自动选择。浏览器没有匹配的语言偏好时，界面显示英文。
+界面支持简体中文和英文，默认跟随浏览器的语言偏好，未匹配时使用英文。右上角「语言 / Language」可手动切换。
 
 推送到 `main` 后，GitHub Actions 自动执行类型检查和单文件构建，将 `dist/index.html` 发布到 GitHub Pages。首次配置或迁移仓库时，在 Settings → Pages 中将 Source 设为 GitHub Actions；也可在 Actions 中手动运行“部署 GitHub Pages”。
 
