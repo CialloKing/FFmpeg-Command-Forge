@@ -1,5 +1,5 @@
 import type { Preset } from './types';
-import { dirname, extension, filterPath, join, stem, substitute } from './paths';
+import { dirname, extension, filterOptionValue, filterPath, join, stem, substitute } from './paths';
 import { data } from './preset';
 
 export const named = (name: string, values: [string, any][]) => { const opts = values.filter(([, v]) => v !== '' && v !== null && v !== undefined).map(([k, v]) => `${k}=${v}`).join(':'); return opts ? `${name}=${opts}` : name; };
@@ -30,9 +30,9 @@ function subtitle(a: Preset, input: string, output: string, external?: string): 
   const inner = v('字幕来源是外部文件') === 2;
   const file = inner ? input : external;
   if (!file || (inner && !v('指定内嵌的流'))) { return ''; }
-  const opts: [string, string][] = [['filename', `'${filterPath(file).replaceAll("'", "\\'")}'`]];
+  const opts: [string, string][] = [['filename', filterOptionValue(file)]];
   if (inner) { opts.push(['stream_index', v('指定内嵌的流')]); }
-  if (v('字体文件夹')) { opts.push(['fontsdir', `'${filterPath(v('字体文件夹')).replaceAll("'", "\\'")}'`]); }
+  if (v('字体文件夹')) { opts.push(['fontsdir', filterOptionValue(v('字体文件夹'))]); }
   const style: string[] = [];
   const push = (name: string, value: any) => { if (value !== '' && value !== 0 && value !== undefined) { style.push(name + '=' + value); } };
   push('FontName', v('基本样式_名称')); push('FontSize', v('基本样式_大小'));
@@ -44,7 +44,7 @@ function subtitle(a: Preset, input: string, output: string, external?: string): 
   }
   for (const [name, key] of [['Alignment', '对齐方位'], ['MarginV', '垂直边距'], ['MarginL', '左边距'], ['MarginR', '右边距'], ['Spacing', '字距'], ['LineSpacing', '行距']]) { push(name, v(key)); }
   if (v('补充样式')) { style.push(v('补充样式')); }
-  if (style.length) { opts.push(['force_style', `'${style.join(',').replaceAll("'", "\\'")}'`]); }
+  if (style.length) { opts.push(['force_style', filterOptionValue(style.join(','))]); }
   const name = v('滤镜选择') === 2 && !inner && !style.length && ['.ass', '.ssa'].includes(extension(file).toLowerCase()) ? 'ass' : 'subtitles';
   return named(name, opts);
 }

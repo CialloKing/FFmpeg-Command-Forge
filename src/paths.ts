@@ -45,6 +45,11 @@ export function relativeSubdirectory(directory: string, root: string, cwd: strin
 
 export const isPlaceholder = (p: string) => /^<.*>$/.test(p);
 export const filterPath = (p: string) => isPlaceholder(p) ? p : p.startsWith('\\\\') ? '\\\\' + p.slice(2).replaceAll('\\', '\\\\') : /^[A-Za-z]:/.test(p) ? p[0] + '\\:' + p.slice(2).replaceAll('\\', '\\\\') : p.replaceAll('\\', '\\\\');
+export function filterOptionValue(value: string): string {
+  // The option parser reads colon and backslash after the filtergraph parser removes its quotes.
+  const option = value.replace(/[\\':]|^\s+|\s+$/g, match => match.replace(/./gs, '\\$&'));
+  return "'" + option.replaceAll("'", "'\\''") + "'";
+}
 export function substitute(text: string, input: string, output: string): string {
   const preview = ['<输入文件>', '<InputFile>'].includes(input.trim());
   const directory = dirname(input);

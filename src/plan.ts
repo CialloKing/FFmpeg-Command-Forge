@@ -5,7 +5,7 @@ import { buildGraph } from './graph';
 import { audioCodec, encode, twoPass, videoCodec } from './codecs';
 import { extraOutputs } from './extra';
 import { add, parseArguments, raw } from './arguments';
-import { dirname, extension, filename, filterPath, formatSeconds, isAbsolute, isPlaceholder, isProtocol, join, pathKey, relativeSubdirectory, seconds, splitTrailingSerial, stem, substitute, windowsAbsolute, withoutExtension } from './paths';
+import { dirname, extension, filename, filterOptionValue, filterPath, formatSeconds, isAbsolute, isPlaceholder, isProtocol, join, pathKey, relativeSubdirectory, seconds, splitTrailingSerial, stem, substitute, windowsAbsolute, withoutExtension } from './paths';
 import { sourceText, type Translate } from './i18n';
 
 export function defaultContext(): ExecutionContext {
@@ -251,7 +251,12 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
     }
     tasks.push({ id: task.id, input, output, directory: dirname(output), stages, assets, preserve: { creation: a.输出命名_保留创建时间, modification: a.输出命名_保留修改时间, access: a.输出命名_保留访问时间 }, naming, candidateStem, extension: suffix, managedOutput: managed && localFile(output) });
   }
-  for (const item of unconfirmed) { if (tasks.some(t => t.stages.some(s => s.args.some(arg => arg.includes(item.path) || arg.includes(filterPath(item.path)) || arg.includes(filterPath(item.path).replaceAll("'", "\\'")))))) { problem('missing', c.platform !== 'windows' && /^[A-Za-z]:/.test(item.path) ? t('Windows 资源路径需要显式映射：{0}', item.path) : t('请确认预设路径用于当前环境：{0}', item.path), item.field); } }
+  for (const item of unconfirmed) {
+    const spellings = [item.path, filterPath(item.path), filterOptionValue(item.path)];
+    if (tasks.some(task => task.stages.some(stage => stage.args.some(arg => spellings.some(path => arg.includes(path)))))) {
+      problem('missing', c.platform !== 'windows' && /^[A-Za-z]:/.test(item.path) ? t('Windows 资源路径需要显式映射：{0}', item.path) : t('请确认预设路径用于当前环境：{0}', item.path), item.field);
+    }
+  }
   const uniqueIssues = [...new Map(issues.map(i => [i.level + i.message, i])).values()];
   return { status: uniqueIssues.some(i => i.level === 'error') ? 'incompatible' : uniqueIssues.some(i => i.level === 'missing') ? 'missing' : 'ready', issues: uniqueIssues, tasks, probes, context: c, preset: a, allowOverwrite };
 }

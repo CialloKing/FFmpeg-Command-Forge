@@ -51,14 +51,16 @@ test('实际媒体验证三类 Windows 脚本、两遍编码、命名及文件�
   assert.equal(serialPlan.tasks[0].output, occupied);
   writeFileSync(occupied, 'existing'); execute(serialPlan, dir);
   assert.equal(readFileSync(occupied, 'utf8'), 'existing'); assert.ok(statSync(path.join(dir, 'clip20261106192345000.mkv')).size > 100);
-  const srt = path.join(dir, '字幕 test.srt'), chapters = path.join(dir, 'chapters.txt'), font = path.join(dir, 'font.ttf');
+  const srt = path.join(dir, "字幕 author's sample,[1].srt"), chapters = path.join(dir, 'chapters.txt'), font = path.join(dir, 'font.ttf');
   writeFileSync(srt, '1\n00:00:00,000 --> 00:00:01,500\nHello subtitle\n');
   writeFileSync(chapters, ';FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1500\ntitle=First chapter\n'); writeFileSync(font, 'attachment bytes');
   const extraContext = defaultContext(); extraContext.inputs = [{ id: 'extras', path: input, output: path.join(dir, 'extras.mkv'), sidecars: [srt], sidecarsConfirmed: true }]; extraContext.confirmedPaths = [chapters, font];
   const extras = await buildPlan(importPreset({ 视频参数_编码器_具体编码: 'copy', 音频参数_编码器_代号: 'audio.copy', 流控制_自动混流SRT: true, 章节_来源: '文本文档', 章节_文件路径: chapters, 附件_要写入的附件: [{ 类型: '字体文件', 文件路径: font }] }), extraContext);
   execute(extras, dir); const extraProbe = JSON.parse(run('ffprobe', ['-v', 'error', '-show_streams', '-show_chapters', '-of', 'json', extras.tasks[0].output])); assert.ok(extraProbe.streams.some((s: any) => s.codec_type === 'subtitle')); assert.ok(extraProbe.streams.some((s: any) => s.codec_type === 'attachment')); assert.equal(extraProbe.chapters[0].tags.title, 'First chapter');
   const burnContext = defaultContext(); burnContext.inputs = [{ id: 'burn', path: input, output: path.join(dir, 'burned.mkv'), subtitle: srt }];
-  const burned = await buildPlan(importPreset({ 视频参数_编码器_具体编码: 'libx264', 视频参数_编码器_编码预设: 'ultrafast', 音频参数_编码器_代号: 'audio.copy', 视频参数_烧录字幕_滤镜选择: 'subtitles', 视频参数_烧录字幕_字幕来源是外部文件: '外部字幕文件' }), burnContext);
+  const fonts = path.join(dir, "author's fonts");
+  mkdirSync(fonts); burnContext.confirmedPaths = [fonts];
+  const burned = await buildPlan(importPreset({ 视频参数_编码器_具体编码: 'libx264', 视频参数_编码器_编码预设: 'ultrafast', 音频参数_编码器_代号: 'audio.copy', 视频参数_烧录字幕_滤镜选择: 'subtitles', 视频参数_烧录字幕_字幕来源是外部文件: '外部字幕文件', 视频参数_烧录字幕_字体文件夹: fonts, 视频参数_烧录字幕_基本样式_名称: "Author's font" }), burnContext);
   execute(burned, dir); assert.ok(statSync(burned.tasks[0].output).size > 100);
 });
 
