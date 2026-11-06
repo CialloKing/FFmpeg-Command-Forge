@@ -97,11 +97,43 @@ test('转码前检查整批输出，覆盖授权拒绝源文件硬链接', { ski
 });
 
 test('辅助文件按 UTF-8 写入且阶段失败后不继续', { skip: process.platform !== 'win32' }, async () => {
-  mkdirSync('.cache', { recursive: true }); const dir = mkdtempSync(path.resolve('.cache/helpers-')), c = defaultContext(); c.inputs = [{ id: 'frames', path: path.join(dir, 'source.mp4'), output: path.join(dir, 'out.mkv') }]; c.resources['template.avs'] = '# 中文模板\nSource("<FilePath>")\n';
-  const plan = await buildPlan(importPreset({ 视频参数_视频帧服务器_使用AviSynth: true, 视频参数_视频帧服务器_avs脚本文件: 'template.avs' }), c);
-  plan.tasks[0].stages[0].executable = path.resolve('tools/oracle/bin/Debug/net10.0/Oracle.exe'); plan.tasks[0].stages[0].args.unshift('--argv'); execute(plan, dir);
-  assert.equal(readFileSync(plan.tasks[0].assets[0].path, 'utf8'), '# 中文模板\nSource("' + plan.tasks[0].input + '")\n');
-  const first = plan.tasks[0].stages[0]; first.executable = 'cmd.exe'; first.args = ['/c', 'exit 7']; plan.tasks[0].stages.push({ ...first, executable: path.resolve('tools/oracle/bin/Debug/net10.0/Oracle.exe'), args: ['--argv', 'SHOULD_NOT_RUN'] });
+  mkdirSync('.cache', { recursive: true });
+  const dir = mkdtempSync(path.resolve('.cache/helpers-')), c = defaultContext();
+  const otherInput = path.join(dir, 'source.frames.avs'), observed = path.join(dir, 'observed.txt');
+  writeFileSync(otherInput, 'protected');
+  c.inputs = [{ id: 'frames', path: path.join(dir, 'source.mp4') }, { id: 'other', path: otherInput }];
+  c.resources['template.avs'] = '# 中文模板\nSource("<FilePath>")\n';
+  const plan = await buildPlan(importPreset({ 输出_输出文件参数使用方法: 2, 视频参数_视频帧服务器_使用AviSynth: true, 视频参数_视频帧服务器_avs脚本文件: 'template.avs' }), c);
+  const first = plan.tasks[0].stages[0];
+  first.executable = process.execPath;
+  first.args = ['-e', 'const fs=require("node:fs"); fs.copyFileSync(process.argv[1],process.argv[2]); process.exit(7);', first.args[first.assetArg!], observed];
+  first.assetArg = 2;
+  plan.tasks[1].stages[0] = { ...first, executable: process.execPath, args: ['-e', 'console.log("SHOULD_NOT_RUN")'], assetArg: undefined };
   const script = renderPlan(plan).script; const r = spawnSync(pwsh, ['-NoProfile', '-Command', script], { encoding: 'utf8', timeout: 20000 });
-  assert.notEqual(r.status, 0); assert.ok(!r.stdout.includes('SHOULD_NOT_RUN'));
+  assert.ifError(r.error); assert.notEqual(r.status, 0); assert.ok(!r.stdout.includes('SHOULD_NOT_RUN'));
+  assert.equal(readFileSync(observed, 'utf8'), '# 中文模板\nSource("' + plan.tasks[0].input + '")\n');
+  assert.equal(readFileSync(otherInput, 'utf8'), 'protected');
+});
+
+test('落盘前重新核验覆盖目标，编码失败保留旧输出', { skip: process.platform !== 'win32' }, async () => {
+  mkdirSync('.cache', { recursive: true });
+  const dir = mkdtempSync(path.resolve('.cache/publish-'));
+  const source = path.join(dir, 'source.mkv'), target = path.join(dir, 'target.mkv');
+  writeFileSync(source, 'original source');
+  const c = defaultContext(); c.cwd = dir; c.inputs = [{ id: 'one', path: 'source.mkv', output: 'target.mkv' }];
+  const t = translator('en');
+  for (const swap of [false, true]) {
+    writeFileSync(target, 'original target');
+    const plan = await buildPlan(importPreset({}), c, t, true);
+    const stage = plan.tasks[0].stages[0];
+    stage.executable = process.execPath;
+    stage.args = ['-e', 'const f=require("node:fs"); const [out,dest,source,swap]=process.argv.slice(1); f.writeFileSync(out,"encoded"); if(swap==="true"){f.unlinkSync(dest); f.linkSync(source,dest);}else{process.exit(7);}', target, target, source, String(swap)];
+    stage.mediaOutputArg = 2;
+    stage.outputArgs = {};
+    const r = spawnSync(pwsh, ['-NoProfile', '-Command', renderPlan(plan, t).script], { encoding: 'utf8', timeout: 15000 });
+    assert.ifError(r.error); assert.notEqual(r.status, 0);
+    assert.equal(readFileSync(source, 'utf8'), 'original source');
+    assert.equal(readFileSync(target, 'utf8'), swap ? 'original source' : 'original target');
+    if (swap) { assert.match(r.stderr, /Encoded file kept at/); }
+  }
 });

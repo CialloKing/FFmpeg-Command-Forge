@@ -17,7 +17,7 @@ function serial(task: PlannedTask) {
 }
 
 function batchPaths(plan: CommandPlan) {
-  const sources = [...new Set(plan.tasks.map(task => task.input))];
+  const sources = [...new Set(plan.tasks.flatMap(task => task.reads ?? [task.input]))];
   return {
     sources: sources.filter(localFile),
     opaqueInputs: sources.some(path => !localFile(path)),
@@ -26,7 +26,28 @@ function batchPaths(plan: CommandPlan) {
 }
 
 // Read the volume and 128-bit file ID through an open handle so aliases compare equal.
-const windowsFileId = 'using System; using System.IO; using System.Runtime.InteropServices; using Microsoft.Win32.SafeHandles; public static class ForgeFileId { [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetFileInformationByHandleEx(SafeFileHandle file, int type, byte[] info, int size); public static string Read(string path) { using(var file=File.OpenRead(path)) { var id=new byte[24]; if(!GetFileInformationByHandleEx(file.SafeFileHandle,18,id,id.Length)) throw new System.ComponentModel.Win32Exception(); return Convert.ToBase64String(id); } } }';
+const windowsFile = `
+using System;
+using System.IO;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class ForgeFile {
+  [DllImport("kernel32.dll", SetLastError=true)]
+  static extern bool GetFileInformationByHandleEx(SafeFileHandle file, int type, byte[] info, int size);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  static extern bool MoveFileEx(string source, string destination, int flags);
+  public static string Id(string path) {
+    using (var file=File.OpenRead(path)) {
+      var id=new byte[24];
+      if (!GetFileInformationByHandleEx(file.SafeFileHandle,18,id,id.Length)) { throw new Win32Exception(); }
+      return Convert.ToBase64String(id);
+    }
+  }
+  public static void Replace(string source, string destination) {
+    if (!MoveFileEx(source,destination,1)) { throw new Win32Exception(); }
+  }
+}`.trim().replace(/\s*\n\s*/g, ' ');
 
 export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
   const { sources, opaqueInputs, outputs } = batchPaths(plan);
@@ -35,22 +56,22 @@ export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
   const occupied = psQuote(t('输出已存在或与本批路径冲突：'));
   const identity = psQuote(t('无法安全确认输出文件可以覆盖：'));
   const lines = [
-    '$forgeOutputs = @{}; $forgeFlags = @{}',
+    '$forgeOutputs = @{}; $forgeExpected = @{}',
     `$forgePaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::${windows ? 'OrdinalIgnoreCase' : 'Ordinal'})`,
     `$forgeSources = @(${sources.map(psQuote).join(', ')}) | ForEach-Object { [IO.Path]::GetFullPath(${psPath('$_')}) }`,
     'foreach ($forgeSourcePath in $forgeSources) { [void]$forgePaths.Add($forgeSourcePath) }'
   ];
-  const mayOverwrite = plan.allowOverwrite && outputs.some(({ task }) => !incrementalNaming(task.naming)) && !opaqueInputs;
+  const mayOverwrite = plan.allowOverwrite && outputs.some(({ task }) => task.stagedOutput && !incrementalNaming(task.naming)) && !opaqueInputs;
   if (mayOverwrite) {
     const stat = plan.context.platform === 'macos' ? '& /usr/bin/stat -L -f %d:%i $p' : '& stat -Lc %d:%i -- $p';
     lines.push(windows
-      ? `function Get-ForgeId($p) { if (-not ('ForgeFileId' -as [type])) { Add-Type -TypeDefinition ${psQuote(windowsFileId)} }; [ForgeFileId]::Read($p) }`
+      ? `function Get-ForgeId($p) { if (-not ('ForgeFile' -as [type])) { Add-Type -TypeDefinition ${psQuote(windowsFile)} }; [ForgeFile]::Id($p) }`
       : `function Get-ForgeId($p) { $value = ${stat}; if ($LASTEXITCODE -ne 0 -or -not $value) { throw (${identity} + $p) }; $value }`);
     lines.push('$forgeIds = @{}; $forgeIdsLoaded = $false');
   }
   // Fixed names must be reserved before any of the automatic names can be advanced.
   for (const { task, index } of [...outputs.filter(x => !incrementalNaming(x.task.naming)), ...outputs.filter(x => incrementalNaming(x.task.naming))]) {
-    lines.push(`$p = [IO.Path]::GetFullPath(${psPath(psQuote(task.output))}); $forgeFlag = '-n'`);
+    lines.push(`$p = [IO.Path]::GetFullPath(${psPath(psQuote(task.output))})`);
     if (incrementalNaming(task.naming)) {
       const { base, digits, ext } = serial(task);
       const numbered = task.naming >= 11;
@@ -60,12 +81,12 @@ export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
       lines.push(`$forgeNumber = ${value}; while ($forgePaths.Contains($p) -or (Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue)) { $p = [IO.Path]::GetFullPath(${psPath(`(${psQuote(base)} + ${format} + ${psQuote(ext)})`)}); ${increment} }`);
     } else {
       lines.push(`if ($forgePaths.Contains($p)) { throw (${occupied} + $p) }`, '$item = Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue');
-      if (!mayOverwrite) { lines.push(`if ($item) { throw (${occupied} + $p) }`); }
+      if (!mayOverwrite || !task.stagedOutput) { lines.push(`if ($item) { throw (${occupied} + $p) }`); }
       else {
-        lines.push(`if ($item) { if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw (${identity} + $p) }; if (-not $forgeIdsLoaded) { foreach ($s in $forgeSources) { $forgeIds[(Get-ForgeId $s)] = $true }; $forgeIdsLoaded = $true }; $id = Get-ForgeId $p; if ($forgeIds.ContainsKey($id)) { throw (${occupied} + $p) }; $forgeIds[$id] = $true; $forgeFlag = '-y' }`);
+        lines.push(`if ($item) { if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw (${identity} + $p) }; if (-not $forgeIdsLoaded) { foreach ($s in $forgeSources) { $forgeIds[(Get-ForgeId $s)] = $true }; $forgeIdsLoaded = $true }; $id = Get-ForgeId $p; if ($forgeIds.ContainsKey($id)) { throw (${occupied} + $p) }; $forgeIds[$id] = $true; $forgeExpected[${index}] = $id }`);
       }
     }
-    lines.push(`[void]$forgePaths.Add($p); $forgeOutputs[${index}] = $p; $forgeFlags[${index}] = $forgeFlag`);
+    lines.push(`[void]$forgePaths.Add($p); $forgeOutputs[${index}] = $p`);
   }
   return lines;
 }
@@ -106,7 +127,7 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
       '  printf "%s%s%s" "${prefix%?}" "$(( ${digit:-0} + 1 ))" "$suffix"',
       '}');
   }
-  const mayOverwrite = plan.allowOverwrite && outputs.some(({ task }) => !incrementalNaming(task.naming)) && !opaqueInputs;
+  const mayOverwrite = plan.allowOverwrite && outputs.some(({ task }) => task.stagedOutput && !incrementalNaming(task.naming)) && !opaqueInputs;
   if (mayOverwrite) {
     const stat = plan.context.platform === 'macos' ? '/usr/bin/stat -L -f %d:%i' : 'stat -Lc %d:%i --';
     lines.push('forge_ids=()', 'forge_ids_loaded=0',
@@ -114,7 +135,7 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
       `forge_identity_error() { printf '%s%s\\n' ${posixQuote(t('无法安全确认输出文件可以覆盖：'))} "$1" >&2; exit 1; }`);
   }
   for (const { task, index } of [...outputs.filter(x => !incrementalNaming(x.task.naming)), ...outputs.filter(x => incrementalNaming(x.task.naming))]) {
-    lines.push(`forge_target=${posixQuote(task.output)}`, 'forge_flag=-n');
+    lines.push(`forge_target=${posixQuote(task.output)}`);
     if (incrementalNaming(task.naming)) {
       const { base, digits, ext } = serial(task);
       lines.push(`forge_number=${digits}`, 'while [ -e "$forge_target" ] || [ -L "$forge_target" ] || forge_taken "$forge_target"; do',
@@ -122,7 +143,7 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
         task.naming >= 11 ? '  forge_number=$(forge_increment_serial "$forge_number")' : '  forge_number=$((forge_number + 1))', 'done');
     } else {
       lines.push('if forge_taken "$forge_target"; then forge_conflict "$forge_target"; fi');
-      if (!mayOverwrite) { lines.push('if [ -e "$forge_target" ] || [ -L "$forge_target" ]; then forge_conflict "$forge_target"; fi'); }
+      if (!mayOverwrite || !task.stagedOutput) { lines.push('if [ -e "$forge_target" ] || [ -L "$forge_target" ]; then forge_conflict "$forge_target"; fi'); }
       else {
         lines.push('if [ -e "$forge_target" ] || [ -L "$forge_target" ]; then',
           '  if [ ! -f "$forge_target" ] || [ -L "$forge_target" ]; then forge_identity_error "$forge_target"; fi',
@@ -138,11 +159,11 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
           '    if [ "$forge_previous" = "$forge_id_value" ]; then forge_conflict "$forge_target"; fi',
           '  done',
           '  forge_ids+=("$forge_id_value")',
-          '  forge_flag=-y',
+          `  forge_expected_${index}=$forge_id_value`,
           'fi');
       }
     }
-    lines.push('forge_reserved+=("$(forge_key "$forge_target")")', `forge_path_${index}=$forge_target`, `forge_flag_${index}=$forge_flag`);
+    lines.push('forge_reserved+=("$(forge_key "$forge_target")")', `forge_path_${index}=$forge_target`);
   }
   return lines;
 }

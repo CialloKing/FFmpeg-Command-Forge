@@ -22,12 +22,17 @@ export interface CommandStage {
   name: string; kind: 'probe' | 'single' | 'pass1' | 'pass2'; executable: string; args: string[]; graph: string; maps: string[]; taskId: string;
   outputArgs?: Record<number, string[]>;
   overwriteArg?: number;
+  mediaOutputArg?: number;
+  assetArg?: number;
+  passlogArg?: number;
 }
 export interface PlannedTask {
   id: string; input: string; output: string; directory: string; stages: CommandStage[];
   assets: { path: string; content: string }[]; preserve: { creation: boolean; modification: boolean; access: boolean };
   naming: number; candidateStem: string; extension: string;
   managedOutput?: boolean;
+  stagedOutput?: boolean;
+  reads?: string[];
   streams?: StreamSummary;
 }
 export interface CommandPlan { status: 'ready' | 'missing' | 'incompatible'; issues: Issue[]; tasks: PlannedTask[]; probes: CommandStage[]; context: ExecutionContext; preset: Preset; allowOverwrite?: boolean }
