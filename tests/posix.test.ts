@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { buildPlan, defaultContext } from '../src/plan';
 import { importPreset } from '../src/preset';
@@ -30,5 +30,17 @@ test('POSIX 原生参数及实际转码', { skip: process.platform === 'win32' }
     assert.equal(probe.streams[0].codec_name, 'h264');
     assert.equal(probe.format.tags.title, occupied);
     assert.equal(probe.format.tags.COMMENT ?? probe.format.tags.comment, output);
+    const copy = importPreset({ 视频参数_编码器_具体编码: 'copy' });
+    c.inputs[0].output = output;
+    run(shell, ['-c', renderPlan(await buildPlan(copy, c, undefined, true)).script]);
+    assert.ok(statSync(output).size > 100);
+    const original = readFileSync(input);
+    const alias = path.join(dir, `${shell}-alias.mkv`);
+    symlinkSync(input, alias);
+    c.inputs[0].output = alias;
+    const denied = spawnSync(shell, ['-c', renderPlan(await buildPlan(copy, c, undefined, true)).script], { encoding: 'utf8', timeout: 15000 });
+    assert.ifError(denied.error);
+    assert.notEqual(denied.status, 0);
+    assert.deepEqual(readFileSync(input), original);
   }
 });
