@@ -42,9 +42,15 @@ test('实际媒体验证三类 Windows 脚本、两遍编码、命名及文件�
     assert.equal(probe.streams.find((s: any) => s.codec_type === 'video').width, 128); assert.equal(probe.streams.find((s: any) => s.codec_type === 'audio').codec_name, 'aac'); assert.equal(probe.format.tags.title, title); assert.equal(statSync(output).mtimeMs, statSync(input).mtimeMs);
   }
   const c = defaultContext(); c.outputDirectory = dir; c.inputs = [{ id: 'name', path: input }];
-  const doc = importPreset({ 输出容器: 'mkv', 输出_自动命名选项: '附加_递增数字', 视频参数_编码器_具体编码: 'copy', 音频参数_编码器_代号: 'audio.copy' }); const plan = await buildPlan(doc, c);
+  const candidate = path.join(dir, path.parse(input).name + '~1.mkv');
+  const doc = importPreset({ 输出容器: 'mkv', 输出_自动命名选项: '附加_递增数字', 视频参数_编码器_具体编码: 'copy', 音频参数_编码器_代号: 'audio.copy', 元数据_要写入的信息: [{ 字段: 'title', 值: candidate }, { 字段: 'comment', 值: '<OutputFile>' }] });
+  const plan = await buildPlan(doc, c);
   writeFileSync(plan.tasks[0].output, 'existing'); execute(plan, dir);
-  assert.equal(readFileSync(plan.tasks[0].output, 'utf8'), 'existing'); assert.ok(statSync(plan.tasks[0].output.replace('~1.mkv', '~2.mkv')).size > 100);
+  const renamed = candidate.replace('~1.mkv', '~2.mkv');
+  assert.equal(readFileSync(candidate, 'utf8'), 'existing');
+  const renamedProbe = JSON.parse(run('ffprobe', ['-v', 'error', '-show_format', '-of', 'json', renamed]));
+  assert.equal(renamedProbe.format.tags.title, candidate);
+  assert.equal(renamedProbe.format.tags.COMMENT ?? renamedProbe.format.tags.comment, renamed);
   c.shell = 'powershell5';
   const serialPlan = await buildPlan(importPreset({ ...doc.raw, 输出_自动命名选项: '附加_2位结尾序号', 输出命名_替代文本: 'clip20261106192344998' }), c);
   const occupied = path.join(dir, 'clip20261106192344999.mkv');

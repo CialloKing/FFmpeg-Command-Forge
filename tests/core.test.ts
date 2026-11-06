@@ -139,6 +139,9 @@ test('探测和转码使用同一份路径映射，显式输出提供容器后�
   assert.equal(plan.status, 'ready', JSON.stringify(plan.issues));
   assert.equal(plan.probes[0].args.at(-1), '/source/input');
   assert.deepEqual(plan.tasks[0].stages[0].args.slice(-3), ['-i', '/source/input', '/source/render/out.mkv']);
+  const custom = await buildPlan(importPreset({ 自定义参数_完全自己写: '-i "<InputFile>" -i "D:\\Media\\extra.mkv" "<OutputFile>"' }), c);
+  assert.equal(custom.status, 'ready', JSON.stringify(custom.issues));
+  assert.deepEqual(custom.tasks[0].stages[0].args, ['-i', '/source/input', '-i', '/source/extra.mkv', '/source/render/out.mkv']);
 });
 
 test('批量固定输出不能占用其他输入或输出', async () => {

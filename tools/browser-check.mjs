@@ -85,6 +85,8 @@ await page.setViewportSize({ width: 390, height: 844 });
 await page.getByRole('button', { name: '任务与环境', exact: true }).click();
 await page.screenshot({ path: '.cache/ui-mobile.png', fullPage: true });
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, '移动端不应横向溢出');
+assert.equal(await overwrite.isChecked(), false);
+await overwrite.check();
 await page.reload(); await page.getByLabel('输入文件 1 路径').waitFor(); assert.equal(await page.getByLabel('输入文件 1 路径').inputValue(), 'D:\\Media\\演示素材.mp4');
 assert.equal(await overwrite.isChecked(), false);
 await page.setViewportSize({ width: 1536, height: 1000 });

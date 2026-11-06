@@ -4,8 +4,8 @@ import { normalizeOrder, subtitleCandidates } from './filters';
 import { buildGraph, summarizeStreams } from './graph';
 import { audioCodec, encode, twoPass, videoCodec } from './codecs';
 import { extraOutputs } from './extra';
-import { add, parseArguments, raw } from './arguments';
-import { dirname, extension, filename, filterOptionValue, filterPath, formatSeconds, isAbsolute, isPlaceholder, isPresetPathField, isProtocol, join, pathKey, relativeSubdirectory, seconds, splitTrailingSerial, stem, substitute, windowsAbsolute, withoutExtension } from './paths';
+import { add, presetArguments } from './arguments';
+import { dirname, extension, filename, filterOptionValue, filterPath, formatSeconds, isAbsolute, isPlaceholder, isPresetPathField, isProtocol, join, pathKey, relativeSubdirectory, seconds, splitTrailingSerial, stem, windowsAbsolute, withoutExtension } from './paths';
 import { sourceText, type Translate } from './i18n';
 
 export function defaultContext(): ExecutionContext {
@@ -162,7 +162,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
     if (!task.path.trim()) { problem('missing', t('请填写输入文件的实际执行路径')); }
     if (c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(input)) { problem('missing', t('Windows 路径需要显式映射：{0}', input)); }
     const explicitOutput = task.output ? executionPath(task.output) : '';
-    const ext = explicitOutput ? extension(explicitOutput).slice(1) : a.输出容器.trim().replace(/^\./, '') || extension(input).slice(1);
+    const ext = extension(explicitOutput).slice(1) || a.输出容器.trim().replace(/^\./, '') || extension(input).slice(1);
     if (!ext && managed) { problem('missing', t('请设置输出容器或指定带后缀的输出文件')); }
     const inputDirectory = isProtocol(input) ? c.cwd : dirname(input);
     let dir = outputDirectory || inputDirectory;
@@ -222,29 +222,33 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
     }
     const stages: CommandStage[] = [];
     const log = phases.length === 2 ? await passlog(input, output, c) : '';
+    const literalMapping = c.pathMappings.length ? (arg: string) => mapPath(arg, c) : undefined;
+    const appendCustom = (args: string[], text: string) => { args.push(...presetArguments(text, input, outputMarker, literalMapping)); };
     let streams: StreamSummary | undefined;
     for (const phase of phases) {
       const args: string[] = [];
       let graph = '', maps: string[] = [], overwriteArg: number | undefined;
       if (custom) {
-        raw(args, substitute(custom, input, outputMarker));
+        appendCustom(args, custom);
         streams = summarizeStreams(args, true);
       }
       else {
         const clipping = clip(a), g = buildGraph(a, input, output, phase === 'pass1', external, outputMarker), extra = phase === 'pass1' ? { inputs: [], outputs: [] } : extraOutputs(a, g, input, output, sidecars, outputMarker);
-        raw(args, substitute(a.自定义参数_开头参数, input, outputMarker));
+        appendCustom(args, a.自定义参数_开头参数);
         args.push('-hide_banner');
         if (managed && phase !== 'pass1') { overwriteArg = args.length; }
         args.push(overwriteArg === undefined ? '-y' : '-n', ...clipping.before);
         for (const [name, value] of [['-hwaccel', a.解码参数_解码器], ['-threads', a.解码参数_CPU解码线程数], ['-hwaccel_output_format', a.解码参数_解码数据格式], [a.解码参数_指定硬件的参数名, a.解码参数_指定硬件的参数]]) { add(args, name, value); }
         if (vapour) { add(args, '-f', 'vapoursynth'); } add(args, '-i', mainInput);
-        raw(args, substitute(a.自定义参数_之前参数, input, outputMarker)); args.push(...extra.inputs, ...clipping.after);
-        if (g.graph) { add(args, '-filter_complex', g.graph); } args.push(...g.maps, ...g.outputFilters, ...encode(a, g, phase, input, output, log, outputMarker));
+        appendCustom(args, a.自定义参数_之前参数);
+        args.push(...extra.inputs, ...clipping.after);
+        if (g.graph) { add(args, '-filter_complex', g.graph); } args.push(...g.maps, ...g.outputFilters, ...encode(a, g, phase, log, appendCustom));
         if (phase === 'pass1') { args.push('-an'); }
-        args.push(...extra.outputs); raw(args, substitute(a.自定义参数_之后参数, input, outputMarker));
+        args.push(...extra.outputs);
+        appendCustom(args, a.自定义参数_之后参数);
         if (phase === 'pass1' || a.输出_输出文件参数使用方法 === 2) { args.push('-f', 'null', c.platform === 'windows' ? 'NUL' : '/dev/null'); }
         else if (a.输出_输出文件参数使用方法 !== 1) { args.push(outputMarker); }
-        raw(args, substitute(a.自定义参数_最后参数, input, outputMarker));
+        appendCustom(args, a.自定义参数_最后参数);
         graph = g.graph; maps = g.maps;
         if (phase !== 'pass1' && a.输出_输出文件参数使用方法 !== 2) {
           streams = summarizeStreams(args, !!graph || customArguments || !managed, 'subtitleInputs' in extra ? extra.subtitleInputs : undefined);

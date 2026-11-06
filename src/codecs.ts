@@ -2,7 +2,6 @@ import { data } from './preset';
 import type { Preset } from './types';
 import { add, raw, withSelector } from './arguments';
 import { colorMetadata, colorRange, colorValue } from './filters';
-import { substitute } from './paths';
 
 export function videoCodec(a: Preset): any {
   const key = a.视频参数_编码器_具体编码;
@@ -29,7 +28,7 @@ function quality(a: Preset, parts: string[], selector: string, phase: string): v
   raw(parts, extra);
 }
 export interface GraphResult { graph: string; maps: string[]; outputFilters: string[]; video: string[]; audio: string[]; videoCount: number; audioCount: number; subtitleCount: number; requestVideo: boolean; requestAudio: boolean; videoFiltered: boolean; audioFiltered: boolean }
-export function encode(a: Preset, g: GraphResult, phase: string, input: string, output: string, passlog: string, outputReference = output): string[] {
+export function encode(a: Preset, g: GraphResult, phase: string, passlog: string, appendCustom: (args: string[], text: string) => void): string[] {
   const result: string[] = [], video = videoCodec(a), audio = audioCodec(a);
   if (video?.命令行编码器名) {
     if (video.是否禁用) { result.push('-vn'); }
@@ -46,7 +45,7 @@ export function encode(a: Preset, g: GraphResult, phase: string, input: string, 
       if (!video?.是否复制流) { add(result, '-gpu', a.视频参数_编码器_gpu, s); add(result, '-threads', a.视频参数_编码器_threads, s); quality(a, result, s, phase); }
     }
   }
-  raw(result, substitute(a.自定义参数_视频参数, input, outputReference));
+  appendCustom(result, a.自定义参数_视频参数);
   if (audio && phase !== 'pass1') {
     if (audio.是否禁用) { result.push('-an'); }
     else if (!(audio.是否复制流 && g.audioFiltered)) {
@@ -59,7 +58,7 @@ export function encode(a: Preset, g: GraphResult, phase: string, input: string, 
   if (g.requestAudio && phase !== 'pass1' && !audio?.是否禁用 && !audio?.是否复制流) {
     for (const s of g.audio.length ? g.audio : ['']) { for (const [name, value] of [['-b:a', a.音频参数_比特率], [a.音频参数_质量参数名, a.音频参数_质量值], [a.音频参数_质量参数名2, a.音频参数_质量值2], ['-sample_fmt', a.音频参数_位深度], ['-ar', a.音频参数_采样率]]) { add(result, name, value, s); } }
   }
-  raw(result, substitute(a.自定义参数_音频参数, input, outputReference));
+  appendCustom(result, a.自定义参数_音频参数);
   if (['pass1', 'pass2'].includes(phase)) { add(result, '-pass', phase === 'pass1' ? '1' : '2'); add(result, '-passlogfile', passlog); }
   return result;
 }
