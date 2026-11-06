@@ -89,20 +89,22 @@ function posixScript(plan: CommandPlan, t: Translate): string {
 }
 export function renderPlan(plan: CommandPlan, t: Translate = sourceText): RenderedPlan {
   const { shell } = plan.context, issues: Issue[] = [], allStages = plan.tasks.flatMap(t => t.stages);
-  const commands = allStages.map(s => renderCommand(s, shell, false, t)).join('\n');
+  const stageCommands = allStages.map(stage => renderCommand(stage, shell, false, t));
+  const commands = stageCommands.join('\n');
   const prefix = shell === 'cmd' ? 'REM ' : '# ';
-  const stages = allStages.map(s => `${prefix}${s.name}\n${renderCommand(s, shell, false, t)}`).join('\n\n');
+  const stages = allStages.map((stage, i) => `${prefix}${stage.name}\n${stageCommands[i]}`).join('\n\n');
   let script: string, filename: string;
   const assets = plan.tasks.flatMap(t => t.assets.map(a => ({ path: a.path, content: a.content })));
   if (shell === 'bash' || shell === 'zsh') { script = posixScript(plan, t); filename = 'forge-task.' + (shell === 'zsh' ? 'zsh' : 'sh'); }
   else if (shell === 'cmd') {
     // CMD delegates the complete helper transaction to the system PowerShell; plain FFmpeg commands remain native CMD.
-    const source = '& { ' + windowsStatements(plan, true, t).join('; ') + ' }';
+    const statements = windowsStatements(plan, true, t);
+    const source = '& { ' + statements.join('; ') + ' }';
     const stage: CommandStage = { name: '', taskId: '', kind: 'single', graph: '', maps: [], executable: 'powershell.exe', args: ['-NoProfile', '-Command', source] };
     const interactive = renderCommand(stage, 'cmd');
     script = interactive;
     filename = 'forge-task.cmd';
-    assets.push({ path: 'forge-task-readable.ps1', content: '& {\n' + windowsStatements(plan, true, t).join('\n') + '\n}\n' });
+    assets.push({ path: 'forge-task-readable.ps1', content: '& {\n' + statements.join('\n') + '\n}\n' });
     if (interactive.length > 8191 || allStages.some(s => [s.executable, ...s.args].some(a => /[\r\n]/.test(a)))) { issues.push({ level: 'error', message: t('CMD 输出超过长度限制或含换行参数，请切换 PowerShell；任务包仍提供可检查的 PowerShell 脚本。') }); }
     if (allStages.some(s => /%/.test(s.executable))) { issues.push({ level: 'error', message: t('CMD 不支持含百分号的自定义程序路径，请切换 PowerShell。') }); }
   } else { script = '& {\n' + windowsStatements(plan, shell === 'powershell5', t).join('\n') + '\n}\n'; filename = 'forge-task.ps1'; }

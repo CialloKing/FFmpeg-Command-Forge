@@ -143,6 +143,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   }
   normalizeOrder(a);
   const custom = a.自定义参数_完全自己写.trim();
+  const phases = custom || !twoPass(a) ? ['single'] as const : ['pass1', 'pass2'] as const;
   const customArguments = ['开头参数', '之前参数', '之后参数', '最后参数', '视频参数', '音频参数'].some(name => a['自定义参数_' + name].trim());
   const managed = !custom && a.输出_输出文件参数使用方法 === 0;
   if (custom || a.输出_输出文件参数使用方法 === 1) { problem('info', t('请检查自定义输出路径，Forge 仅保护由页面生成的本地输出文件。')); }
@@ -219,9 +220,10 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
         if (mainInput === input) { mainInput = scriptPath; vapour = kind === 'VapourSynth'; }
       }
     }
-    const stages: CommandStage[] = [], log = await passlog(input, output, c);
+    const stages: CommandStage[] = [];
+    const log = phases.length === 2 ? await passlog(input, output, c) : '';
     let streams: StreamSummary | undefined;
-    for (const phase of custom ? ['single'] : twoPass(a) ? ['pass1', 'pass2'] : ['single']) {
+    for (const phase of phases) {
       const args: string[] = [];
       let graph = '', maps: string[] = [], overwriteArg: number | undefined;
       if (custom) {
@@ -259,7 +261,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
       if (c.platform !== 'windows' && args.some(p => /^[A-Za-z]:[\\/]/.test(p))) { problem('missing', t('命令中的资源仍有 Windows 路径，请显式映射到目标系统')); }
       if (args.some(p => /<(?:输入文件|输出文件|媒体总时长|InputFile[^>]*|OutputFile|字幕文件[^>]*)>/.test(p))) { problem('missing', t('{0}：命令仍有未解析的占位符', filename(input))); }
       if (args.some(p => p.includes('\0')) || c.ffmpeg.includes('\0')) { problem('error', t('参数和程序路径不能包含 NUL 字符')); }
-      stages.push({ name: phase === 'pass1' ? t('两遍编码 · 第一遍') : phase === 'pass2' ? t('两遍编码 · 第二遍') : t('执行转码'), kind: phase as CommandStage['kind'], executable: c.ffmpeg, args, graph: graph.replaceAll(outputMarker, () => output), maps, taskId: task.id, outputArgs, overwriteArg });
+      stages.push({ name: phase === 'pass1' ? t('两遍编码 · 第一遍') : phase === 'pass2' ? t('两遍编码 · 第二遍') : t('执行转码'), kind: phase, executable: c.ffmpeg, args, graph: graph.replaceAll(outputMarker, () => output), maps, taskId: task.id, outputArgs, overwriteArg });
     }
     tasks.push({ id: task.id, input, output, directory: dirname(output), stages, assets, preserve: { creation: a.输出命名_保留创建时间, modification: a.输出命名_保留修改时间, access: a.输出命名_保留访问时间 }, naming, candidateStem, extension: suffix, managedOutput: managed && localFile(output), streams });
   }

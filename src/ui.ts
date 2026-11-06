@@ -31,7 +31,9 @@ const cacheKey = 'ffmpeg-command-forge.workspace.v1', libraryKey = 'ffmpeg-comma
 const presetBaseline = `3FUI ${upstreamVersion}`;
 const presetFormat = `v${data.defaults.预设文件版本} JSON`;
 const presetHint = () => t('预设兼容基线 {0} · {1}', presetBaseline, presetFormat);
-let doc: PresetDocument = readPreset(), context: ExecutionContext = defaultContext(), selected = '任务与环境', query = '', previewTab = 'commands', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
+type PreviewTab = 'commands' | 'stages' | 'graph' | 'args' | 'script';
+let previewTab: PreviewTab = 'commands';
+let doc: PresetDocument = readPreset(), context: ExecutionContext = defaultContext(), selected = '任务与环境', query = '', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
 let theme = 'dark';
 let allowOverwrite = false;
 let library: { name: string; preset: Preset }[] = [];
@@ -477,15 +479,39 @@ function renderStreams(plan: CommandPlan): void {
   }
 }
 
+function previewText(plan: CommandPlan, rendered: RenderedPlan): string {
+  if (previewTab === 'graph') {
+    return plan.tasks.flatMap(task => task.stages.filter(stage => stage.graph).map(stage => `# ${stage.name}\n${stage.graph}`)).join('\n\n') ||
+      t('此任务未使用复杂滤镜图。线性滤镜可在参数视图查看。');
+  }
+  if (previewTab === 'args') {
+    return JSON.stringify(plan.tasks.map(task => ({
+      [t('输入')]: task.input,
+      [t('输出')]: task.output,
+      [t('阶段')]: task.stages.map(stage => ({ [t('名称')]: stage.name, [t('程序')]: stage.executable, [t('参数')]: stage.args, [t('映射')]: stage.maps }))
+    })), null, 2);
+  }
+  return rendered[previewTab];
+}
+
 function renderOutput(): void {
   const plan = currentPlan!, rendered = currentRendered!, issues = [...plan.issues, ...rendered.issues], incompatible = issues.some(x => x.level === 'error'), ready = plan.status === 'ready' && !incompatible;
   $('#task-summary').textContent = t('{0} 个输入 · {1} 个执行阶段 · {2}', plan.tasks.length, plan.tasks.reduce((n, t) => n + t.stages.length, 0), t(labels[context.shell]));
   renderStreams(plan);
   $('#status-title').textContent = incompatible ? t('不兼容') : ready ? t('命令已就绪') : t('待补充信息'); $('#status-caption').textContent = incompatible ? t('请处理以下兼容问题') : ready ? t('复制完整脚本到所选终端执行') : t('完成路径、资源或媒体信息确认'); $('#status-icon').textContent = ready ? '✓' : incompatible ? '×' : '◌'; $('#status-icon').style.color = ready ? 'var(--accent)' : incompatible ? 'var(--error)' : 'var(--orange)';
   const tabs = $('#preview-tabs'); tabs.replaceChildren();
-  for (const [id, name] of [['commands', t('命令')], ['stages', t('阶段')], ['graph', t('滤镜图')], ['args', t('参数')], ['script', t('完整脚本')]]) { tabs.append(button(name, () => { previewTab = id; renderOutput(); }, 'tab' + (previewTab === id ? ' active' : ''))); }
-  const previews: Record<string, string> = { script: rendered.script, commands: rendered.commands, stages: rendered.stages, graph: plan.tasks.flatMap(t => t.stages.filter(s => s.graph).map(s => `# ${s.name}\n${s.graph}`)).join('\n\n') || t('此任务未使用复杂滤镜图。线性滤镜可在参数视图查看。'), args: JSON.stringify(plan.tasks.map(task => ({ [t('输入')]: task.input, [t('输出')]: task.output, [t('阶段')]: task.stages.map(s => ({ [t('名称')]: s.name, [t('程序')]: s.executable, [t('参数')]: s.args, [t('映射')]: s.maps })) })), null, 2) };
-  $('#command').textContent = previews[previewTab]; $('#terminal-title').textContent = (ready ? '' : 'PREVIEW · ') + t(labels[context.shell]).toUpperCase();
+  const labelsByTab: [PreviewTab, string][] = [['commands', t('命令')], ['stages', t('阶段')], ['graph', t('滤镜图')], ['args', t('参数')], ['script', t('完整脚本')]];
+  for (const [id, name] of labelsByTab) {
+    const tab = button(name, () => {
+      if (!currentPlan || !currentRendered || id === previewTab) { return; }
+      previewTab = id;
+      tabs.querySelector('.active')?.classList.remove('active');
+      tab.classList.add('active');
+      $('#command').textContent = previewText(currentPlan, currentRendered);
+    }, 'tab' + (previewTab === id ? ' active' : ''));
+    tabs.append(tab);
+  }
+  $('#command').textContent = previewText(plan, rendered); $('#terminal-title').textContent = (ready ? '' : 'PREVIEW · ') + t(labels[context.shell]).toUpperCase();
   for (const id of ['copy-final', 'download-script', 'download-zip']) { $<HTMLButtonElement>('#' + id).disabled = !ready; }
   const issueBox = $('#issues'); issueBox.replaceChildren();
   if (issues.length) { issueBox.append(el('h3', '', t('需要关注'))); issues.forEach(issue => issueBox.append(el('div', 'issue ' + issue.level, issue.message))); }
