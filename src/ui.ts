@@ -63,6 +63,7 @@ function mountApp(): void {
     <aside class="output" aria-label="${t('命令预览')}">
       <div><div class="row between"><span class="output-heading">${t('命令工作台')}</span><span class="pill green"><span class="dot"></span>${t('离线运行')}</span></div><div class="subline" id="task-summary">${t('等待配置输入文件')}</div></div>
       <div class="status-card"><div class="status-icon" id="status-icon">◌</div><div><div class="status-title" id="status-title">${t('正在构建')}</div><div class="status-caption" id="status-caption">${t('检查预设与执行环境')}</div></div></div>
+      <div id="stream-summary" class="note stack" hidden></div>
       <div><div class="tabs" id="preview-tabs"></div><div class="terminal"><div class="terminal-top"><span id="terminal-title">POWERSHELL</span><button id="copy-preview" class="ghost small">${t('复制预览')}</button></div><pre id="command" tabindex="0" aria-label="${t('生成的命令或脚本')}"></pre></div></div>
       <div class="stack">
         <button id="copy-final" class="primary" disabled>${t('复制最终脚本 ↗')}</button>
@@ -115,6 +116,7 @@ function edit(path: (string | number)[], value: any): void {
 }
 function schedule(): void {
   generation++; currentPlan = undefined; currentRendered = undefined;
+  $('#stream-summary').hidden = true;
   $('#copy-final').setAttribute('disabled', ''); $('#download-script').setAttribute('disabled', ''); $('#download-zip').setAttribute('disabled', '');
   $('#status-title').textContent = t('正在构建'); $('#status-caption').textContent = t('检查预设与执行环境');
   clearTimeout(timer); timer = setTimeout(recompute, 100); cached();
@@ -428,9 +430,39 @@ function renderParameterList(): void {
   if (!keys.length) { card.append(el('p', 'muted', t('没有匹配的参数。'))); }
   body.append(stack);
 }
+function renderStreams(plan: CommandPlan): void {
+  const panel = $('#stream-summary');
+  panel.replaceChildren();
+  const descriptions = { mapped: '显式映射', automatic: 'FFmpeg 自动选择', omitted: '未映射', unknown: '请查看参数' };
+  const rows = new Map<string, number>();
+  for (const { streams } of plan.tasks) {
+    if (!streams) { continue; }
+    const text = t('视频：{0} · 音频：{1} · 字幕：{2}', t(descriptions[streams.v]), t(descriptions[streams.a]), t(descriptions[streams.s]));
+    rows.set(text, (rows.get(text) ?? 0) + 1);
+  }
+  panel.hidden = !rows.size;
+  if (!rows.size) { return; }
+  panel.append(el('strong', '', t('输出流')));
+  for (const [text, count] of rows) {
+    panel.append(el('small', '', rows.size === 1 ? text : t('{0} 个任务 · {1}', count, text)));
+  }
+  const a = doc.normalized;
+  const audioConfigured = a.流控制_启用保留其他音频流 || a.流控制_将音频参数应用于指定流.length ||
+    a.滤镜排序系统.some((filter: Preset) => filter.滤镜目标流类型 === 2) ||
+    Object.keys(schema.fields!).some(key => key.startsWith('音频参数_') && JSON.stringify(a[key]) !== JSON.stringify(data.defaults[key]));
+  if (!audioConfigured && plan.tasks.some(task => task.streams?.v === 'mapped' && task.streams.a === 'omitted')) {
+    panel.append(button(t('复制源音频'), () => {
+      doc = readPreset({ ...doc.raw, 音频参数_编码器_代号: 'audio.copy', 流控制_启用保留其他音频流: true });
+      schedule();
+      renderEditor();
+    }, 'small'));
+  }
+}
+
 function renderOutput(): void {
   const plan = currentPlan!, rendered = currentRendered!, issues = [...plan.issues, ...rendered.issues], incompatible = issues.some(x => x.level === 'error'), ready = plan.status === 'ready' && !incompatible;
   $('#task-summary').textContent = t('{0} 个输入 · {1} 个执行阶段 · {2}', plan.tasks.length, plan.tasks.reduce((n, t) => n + t.stages.length, 0), t(labels[context.shell]));
+  renderStreams(plan);
   $('#status-title').textContent = incompatible ? t('不兼容') : ready ? t('命令已就绪') : t('待补充信息'); $('#status-caption').textContent = incompatible ? t('请处理以下兼容问题') : ready ? t('复制完整脚本到所选终端执行') : t('完成路径、资源或媒体信息确认'); $('#status-icon').textContent = ready ? '✓' : incompatible ? '×' : '◌'; $('#status-icon').style.color = ready ? 'var(--accent)' : incompatible ? 'var(--error)' : 'var(--orange)';
   const tabs = $('#preview-tabs'); tabs.replaceChildren();
   for (const [id, name] of [['commands', t('命令')], ['stages', t('阶段')], ['graph', t('滤镜图')], ['args', t('参数')], ['script', t('完整脚本')]]) { tabs.append(button(name, () => { previewTab = id; renderOutput(); }, 'tab' + (previewTab === id ? ' active' : ''))); }

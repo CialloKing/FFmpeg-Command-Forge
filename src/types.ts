@@ -2,6 +2,9 @@ export type Preset = Record<string, any>;
 export type Schema = { kind: string; fields?: Record<string, Schema>; items?: Schema; values?: Record<string, number>; defaults?: any };
 export type Platform = 'windows' | 'linux' | 'macos';
 export type Shell = 'powershell' | 'powershell5' | 'cmd' | 'bash' | 'zsh';
+export type StreamType = 'v' | 'a' | 's';
+export type StreamSelection = 'mapped' | 'automatic' | 'omitted' | 'unknown';
+export type StreamSummary = Record<StreamType, StreamSelection>;
 export interface Issue { level: 'error' | 'missing' | 'info'; message: string; field?: string }
 export interface PresetDocument { raw: Preset; normalized: Preset; issues: Issue[] }
 export interface InputTask { id: string; path: string; output?: string; probe?: { path: string; resolvedPath?: string; data: any }; subtitle?: string; sidecars?: string[]; sidecarsConfirmed?: boolean }
@@ -20,6 +23,7 @@ export interface PlannedTask {
   assets: { path: string; content: string }[]; preserve: { creation: boolean; modification: boolean; access: boolean };
   naming: number; candidateStem: string; extension: string;
   managedOutput?: boolean;
+  streams?: StreamSummary;
 }
 export interface CommandPlan { status: 'ready' | 'missing' | 'incompatible'; issues: Issue[]; tasks: PlannedTask[]; probes: CommandStage[]; context: ExecutionContext; preset: Preset; allowOverwrite?: boolean }
 export interface RenderedPlan { commands: string; stages: string; script: string; filename: string; issues: Issue[]; assets: { path: string; content: string }[] }

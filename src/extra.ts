@@ -12,8 +12,9 @@ function mime(file: string, type: number): string {
   const map: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', jxl: 'image/jxl', png: 'image/png', webp: 'image/webp', bmp: 'image/bmp', gif: 'image/gif', ttf: 'application/x-truetype-font', otf: 'application/vnd.ms-opentype', ttc: 'application/x-font-ttf', woff: 'font/woff', woff2: 'font/woff2', txt: 'text/plain', md: 'text/plain', nfo: 'text/plain', json: 'application/json', xml: 'application/xml' };
   return map[extension(file).slice(1).toLowerCase()] || (type === 5 ? 'text/plain' : 'application/octet-stream');
 }
-export function extraOutputs(a: Preset, g: GraphResult, input: string, output: string, sidecars: string[], outputReference = output): { inputs: string[]; outputs: string[] } {
+export function extraOutputs(a: Preset, g: GraphResult, input: string, output: string, sidecars: string[], outputReference = output) {
   const inputs: string[] = [], outputs: string[] = [];
+  const subtitleInputs = new Set<number>();
   const ext = containerExtension(a, output), matroska = ['mkv', 'mka', 'mks', 'mk3d'].includes(ext), coverAllowed = matroska || ['mp4', 'm4v', 'm4a', 'mov', '3gp', '3g2'].includes(ext);
   const metadataMode = a.流控制_元数据选项;
   if (metadataMode) { add(outputs, '-map_metadata', metadataMode === 2 ? '-1' : '0'); if (metadataMode === 3) { add(outputs, '-movflags', '+use_metadata_tags'); } }
@@ -30,6 +31,7 @@ export function extraOutputs(a: Preset, g: GraphResult, input: string, output: s
   if (a.流控制_附件选项 === 1 && matroska) { outputs.push('-map', '0:t?', '-c:t', 'copy'); explicit = true; }
   const subPositions: number[] = [], coverPositions: number[] = [];
   for (const file of sidecars) {
+    subtitleInputs.add(inputIndex);
     add(inputs, '-i', file); outputs.push('-map', `${inputIndex++}:0?`); explicit = true;
     const codec = subtitleCodec(a.流控制_自动混流的字幕转为MOVTEXT ? 'mov_text' : 'copy', a, output, true);
     if (codec) { if (g.subtitleCount < 0) { add(outputs, '-c:s', codec); } else { subPositions.push(outputs.length); add(outputs, '-c:s:' + (g.subtitleCount + subPositions.length - 1), codec); } }
@@ -56,5 +58,5 @@ export function extraOutputs(a: Preset, g: GraphResult, input: string, output: s
     subPositions.forEach((p, i) => { outputs[p] = '-c:s:' + i; });
     outputs.unshift(...defaults);
   }
-  return { inputs, outputs };
+  return { inputs, outputs, subtitleInputs };
 }

@@ -33,6 +33,10 @@ await page.getByRole('button', { name: '编码器', exact: true }).click();
 const video = page.getByRole('combobox', { name: '编码器 / 具体编码', exact: true });
 await video.fill('x264');
 await page.getByRole('option', { name: 'libx264', exact: true }).click();
+await page.getByText(/音频：未映射/).waitFor();
+await page.getByRole('button', { name: '复制源音频' }).click();
+await page.getByText(/音频：显式映射/).waitFor();
+assert.match(await page.locator('#command').innerText(), /'-c:a' 'copy'/);
 await page.getByLabel('编码器 / 编码预设', { exact: true }).fill('medium');
 await page.getByRole('button', { name: '质量', exact: true }).click();
 const rate = page.getByRole('combobox', { name: '比特率 / 控制方式', exact: true });
@@ -50,6 +54,8 @@ await audioCodec.press('Escape');
 assert.equal(await audioCodec.inputValue(), 'AAC（aac.native）');
 await page.getByLabel('比特率', { exact: true }).fill('192k');
 await page.getByRole('button', { name: '任务与环境', exact: true }).click();
+const overwrite = page.getByRole('checkbox', { name: '允许本批脚本覆盖已有输出' });
+await overwrite.check();
 await page.getByRole('button', { name: '复制最终脚本 ↗' }).waitFor({ state: 'visible' });
 await page.waitForFunction(() => !document.querySelector('#copy-final').disabled);
 assert.match(await page.locator('#command').innerText(), /libx264/);
@@ -71,6 +77,7 @@ await page.getByRole('button', { name: '任务与环境', exact: true }).click()
 await page.screenshot({ path: '.cache/ui-mobile.png', fullPage: true });
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, '移动端不应横向溢出');
 await page.reload(); await page.getByLabel('输入文件 1 路径').waitFor(); assert.equal(await page.getByLabel('输入文件 1 路径').inputValue(), 'D:\\Media\\演示素材.mp4');
+assert.equal(await overwrite.isChecked(), false);
 const future = { 预设文件版本: 6, 滤镜排序系统: [
   { 实例ID: 'one', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'hflip', 未知扩展: { keep: true } },
   { 实例ID: 'two', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'vflip' }

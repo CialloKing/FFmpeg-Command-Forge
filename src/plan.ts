@@ -1,7 +1,7 @@
-import type { CommandPlan, CommandStage, ExecutionContext, InputTask, Issue, PlannedTask, Preset, PresetDocument } from './types';
+import type { CommandPlan, CommandStage, ExecutionContext, InputTask, Issue, PlannedTask, Preset, PresetDocument, StreamSummary } from './types';
 import { clone, data } from './preset';
 import { normalizeOrder, subtitleCandidates } from './filters';
-import { buildGraph } from './graph';
+import { buildGraph, summarizeStreams } from './graph';
 import { audioCodec, encode, twoPass, videoCodec } from './codecs';
 import { extraOutputs } from './extra';
 import { add, parseArguments, raw } from './arguments';
@@ -139,6 +139,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   }
   normalizeOrder(a);
   const custom = a.自定义参数_完全自己写.trim();
+  const customArguments = ['开头参数', '之前参数', '之后参数', '最后参数', '视频参数', '音频参数'].some(name => a['自定义参数_' + name].trim());
   const managed = !custom && a.输出_输出文件参数使用方法 === 0;
   if (custom || a.输出_输出文件参数使用方法 === 1) { problem('info', t('请检查自定义输出路径，Forge 仅保护由页面生成的本地输出文件。')); }
   if (!custom && [4, 6].includes(a.剪辑区间_方法)) { for (const key of ['剪辑区间_入点', '剪辑区间_出点']) { if (a[key].includes(':') && seconds(a[key]) === undefined) { problem('error', t('{0} 的时间格式无法解析，请使用有效的 hh:mm:ss 或小数秒，避免省略剪辑区间', key), key); } } }
@@ -215,10 +216,14 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
       }
     }
     const stages: CommandStage[] = [], log = await passlog(input, output, c);
+    let streams: StreamSummary | undefined;
     for (const phase of custom ? ['single'] : twoPass(a) ? ['pass1', 'pass2'] : ['single']) {
       const args: string[] = [];
       let graph = '', maps: string[] = [], overwriteArg: number | undefined;
-      if (custom) { raw(args, substitute(custom, input, outputMarker)); }
+      if (custom) {
+        raw(args, substitute(custom, input, outputMarker));
+        streams = summarizeStreams(args, true);
+      }
       else {
         const clipping = clip(a), g = buildGraph(a, input, output, phase === 'pass1', external, outputMarker), extra = phase === 'pass1' ? { inputs: [], outputs: [] } : extraOutputs(a, g, input, output, sidecars, outputMarker);
         raw(args, substitute(a.自定义参数_开头参数, input, outputMarker));
@@ -235,6 +240,9 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
         else if (a.输出_输出文件参数使用方法 !== 1) { args.push(outputMarker); }
         raw(args, substitute(a.自定义参数_最后参数, input, outputMarker));
         graph = g.graph; maps = g.maps;
+        if (phase !== 'pass1' && a.输出_输出文件参数使用方法 !== 2) {
+          streams = summarizeStreams(args, !!graph || customArguments || !managed, 'subtitleInputs' in extra ? extra.subtitleInputs : undefined);
+        }
       }
       const outputArgs: Record<number, string[]> = {};
       for (let i = 0; i < args.length; i++) {
@@ -249,7 +257,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
       if (args.some(p => p.includes('\0')) || c.ffmpeg.includes('\0')) { problem('error', t('参数和程序路径不能包含 NUL 字符')); }
       stages.push({ name: phase === 'pass1' ? t('两遍编码 · 第一遍') : phase === 'pass2' ? t('两遍编码 · 第二遍') : t('执行转码'), kind: phase as CommandStage['kind'], executable: c.ffmpeg, args, graph: graph.replaceAll(outputMarker, () => output), maps, taskId: task.id, outputArgs, overwriteArg });
     }
-    tasks.push({ id: task.id, input, output, directory: dirname(output), stages, assets, preserve: { creation: a.输出命名_保留创建时间, modification: a.输出命名_保留修改时间, access: a.输出命名_保留访问时间 }, naming, candidateStem, extension: suffix, managedOutput: managed && localFile(output) });
+    tasks.push({ id: task.id, input, output, directory: dirname(output), stages, assets, preserve: { creation: a.输出命名_保留创建时间, modification: a.输出命名_保留修改时间, access: a.输出命名_保留访问时间 }, naming, candidateStem, extension: suffix, managedOutput: managed && localFile(output), streams });
   }
   for (const item of unconfirmed) {
     const spellings = [item.path, filterPath(item.path), filterOptionValue(item.path)];
