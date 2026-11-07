@@ -144,7 +144,7 @@ function loadWorkspace(text: string, undoable = false): void {
 }
 try {
   const text = localStorage.getItem(cacheKey);
-  if (text) { loadWorkspace(text); persistence.restored(); if (JSON.parse(text).version === 1) { persistence.schedule(); persistence.flush(); } }
+  if (text) { loadWorkspace(text); persistence.restored(); if (JSON.parse(text.replace(/^\uFEFF/, '')).version === 1) { persistence.schedule(); persistence.flush(); } }
 } catch { /* A damaged workspace cache must not prevent a fresh session. */ }
 try {
   const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]');
@@ -160,6 +160,7 @@ function updateTask(id: string, update: (task: InputTask) => void): void { if (s
 
 function schedule(save: 'deferred' | 'immediate' | false = 'deferred'): void {
   renderUndo();
+  document.querySelectorAll<HTMLButtonElement>('[data-copy-probe]').forEach(button => { button.disabled = true; });
   generation++; currentPlan = undefined; currentRendered = undefined;
   $('#stream-summary').hidden = true;
   $('#copy-preview').setAttribute('disabled', ''); $('#copy-final').setAttribute('disabled', ''); $('#download-script').setAttribute('disabled', ''); $('#download-zip').setAttribute('disabled', '');
@@ -173,6 +174,7 @@ async function recompute(): Promise<void> {
     const plan = await buildPlan(state.doc, state.context, t, state.allowOverwrite); if (id !== generation) { return; }
     if (state.mappingErrors.length) { plan.status = 'incompatible'; plan.issues.push({ level: 'error', message: mappingErrorText(), target: contextTarget(['pathMappings']) }); }
     currentPlan = plan; currentRendered = renderPlan(plan, t); renderOutput();
+    document.querySelectorAll<HTMLButtonElement>('[data-copy-probe]').forEach(button => { button.disabled = !!state.mappingErrors.length; });
     const tasks = new Map(state.context.inputs.map(task => [task.id, task]));
     for (const detail of document.querySelectorAll<HTMLElement>('[data-probe-task]')) {
       const task = tasks.get(detail.dataset.probeTask!);
@@ -264,7 +266,9 @@ function taskCard(task: InputTask, index: number): HTMLElement {
       updateTask(task.id, current => { current.probe = { ...binding, data: probe }; }); refreshTaskCard(task.id);
     };
   };
-  actions.append(button(t('导入 ffprobe JSON'), () => { const apply = probeReceiver(); pick('.json', (_file, text) => apply(text)); }, 'small'), button(t('复制探测命令'), () => { const stage = currentPlan?.probes.find(s => s.taskId === task.id); if (stage) { void copy(renderCommand(stage, state.context.shell, false, t)); } }, 'small ghost'), button(t('粘贴探测结果'), () => {
+  const copyProbe = button(t('复制探测命令'), () => { if (state.mappingErrors.length) { return; } const stage = currentPlan?.probes.find(s => s.taskId === task.id); if (stage) { void copy(renderCommand(stage, state.context.shell, false, t)); } }, 'small ghost');
+  copyProbe.dataset.copyProbe = task.id; copyProbe.disabled = !currentPlan || !!state.mappingErrors.length;
+  actions.append(button(t('导入 ffprobe JSON'), () => { const apply = probeReceiver(); pick('.json', (_file, text) => apply(text)); }, 'small'), copyProbe, button(t('粘贴探测结果'), () => {
     const token = state.beginImport(), apply = probeReceiver();
     openTextDialog(t('导入 ffprobe 结果'), '', text => { checkImport(token); apply(text); });
   }, 'small ghost'));
