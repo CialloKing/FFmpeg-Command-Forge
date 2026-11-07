@@ -1,7 +1,7 @@
 import { zipSync, strToU8 } from 'fflate';
 import { revision, version as upstreamVersion } from '../docs/upstream.json';
 import ffmpegFull from './data/ffmpeg-full-2026.11.3.json';
-import { blankValue, clone, data, exportPreset, groupFor, groups, importPreset, schema } from './preset';
+import { blankValue, clone, data, exportPreset, groupFor, groups, importPreset, matchesFieldShape, matchesFieldType, schema } from './preset';
 import { associatedProbe, buildPlan, defaultContext, resolvedInput } from './plan';
 import { renderCommand, renderPlan } from './render';
 import { normalizeOrder, subtitleCandidates } from './filters';
@@ -303,6 +303,19 @@ const fieldHint = (key: string) => t(parameterHints[key] || familyHints.find(([p
 function parameterField(key: string, spec: Schema, value: any, path: (string | number)[]): HTMLElement {
   const label = parameterLabel(locale, key);
   const hint = path.length === 1 ? fieldHint(key) || (locale === 'zh-CN' ? key : '') : '';
+  if (!matchesFieldType(value, spec)) {
+    const field = el('div', 'field wide invalid-field');
+    field.append(el('strong', '', label), el('p', 'error-message', t('字段类型不匹配，原始值已保留。')),
+      el('pre', 'mono', JSON.stringify(value, null, 2)), button(t('编辑此字段 JSON'), () => {
+        openTextDialog(t('编辑字段：{0}', label), JSON.stringify(currentValue(path), null, 2), text => {
+          const value = JSON.parse(text);
+          if (!matchesFieldShape(value, spec)) { throw new Error(t('此字段包含类型错误，请按字段结构修改 JSON。')); }
+          edit(path, value); renderEditor();
+        });
+      }, 'small'));
+    return field;
+  }
+  value ??= blankValue(spec);
   if (spec.kind === 'object' || spec.kind === 'array') {
     const wrapper = el('div', 'field wide');
     const details = el('details', 'nested'); const summary = el('summary', '', label + (spec.kind === 'array' ? t(' · {0} 项', (value || []).length) : '')); details.append(summary);
@@ -320,7 +333,7 @@ function parameterField(key: string, spec: Schema, value: any, path: (string | n
       };
       values.forEach((v, i) => {
         const item = el('div', 'array-item');
-        if (spec.items!.kind === 'object') { for (const [k, s] of Object.entries(spec.items!.fields!)) { item.append(parameterField(k, s, v?.[k] ?? blankValue(s), [...path, i, k])); } }
+        if (spec.items!.kind === 'object' && matchesFieldType(v, spec.items!)) { for (const [k, s] of Object.entries(spec.items!.fields!)) { item.append(parameterField(k, s, v?.[k] ?? blankValue(s), [...path, i, k])); } }
         else { item.append(parameterField(t('第 {0} 项', i + 1), spec.items!, v, [...path, i])); }
         const actions = el('div', 'array-actions');
         const move = (delta: number) => change(items => { if (i + delta < 0 || i + delta >= items.length) { return; } [items[i], items[i + delta]] = [items[i + delta], items[i]]; });
@@ -361,6 +374,9 @@ function parameterField(key: string, spec: Schema, value: any, path: (string | n
   return field;
 }
 function filterOrder(): HTMLElement {
+  if (!matchesFieldShape(doc.raw.滤镜排序系统, schema.fields!.滤镜排序系统)) {
+    return el('div', 'note', t('请先修复滤镜排序字段中的类型错误。'));
+  }
   const a = clone(doc.normalized); normalizeOrder(a); const order: Preset[] = a.滤镜排序系统;
   const box = el('div', 'card'); box.append(el('h3', '', t('滤镜执行顺序')), el('p', 'subtitle', t('同类滤镜保留已有顺序。内置滤镜内容随参数更新；自定义滤镜可在下方数组中编辑。')));
   if (!order.length) { box.append(el('div', 'empty', t('尚未启用滤镜。配置画面、字幕或音频处理后会显示在这里。'))); }
@@ -374,7 +390,7 @@ function filterOrder(): HTMLElement {
       const i = currentIndex;
       if (!order[i + delta] || order[i + delta].滤镜目标流类型 !== item.滤镜目标流类型) { return; }
       [order[i], order[i + delta]] = [order[i + delta], order[i]];
-      const remaining = [...(doc.raw.滤镜排序系统 || [])];
+      const remaining = Array.isArray(doc.raw.滤镜排序系统) ? doc.raw.滤镜排序系统.filter(x => x && typeof x === 'object' && !Array.isArray(x)) : [];
       const items = order.map(normalized => { const originalIndex = remaining.findIndex(x => x.实例ID && x.实例ID === normalized.实例ID || (typeof x.滤镜标识符 === 'number' ? x.滤镜标识符 : schema.fields!.滤镜排序系统.items!.fields!.滤镜标识符.values![x.滤镜标识符]) === normalized.滤镜标识符 && x.自定义滤镜内容 === normalized.自定义滤镜内容); const original = originalIndex >= 0 ? remaining.splice(originalIndex, 1)[0] : {}; return { ...original, ...normalized }; });
       edit(['滤镜排序系统'], items); renderEditor();
     };

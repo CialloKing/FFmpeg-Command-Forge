@@ -1,4 +1,9 @@
 {
+  "字段类型不匹配，原始值已保留。": "The field has the wrong type. Its original value has been preserved.",
+  "编辑此字段 JSON": "Edit this field as JSON",
+  "编辑字段：{0}": "Edit field: {0}",
+  "此字段包含类型错误，请按字段结构修改 JSON。": "This field contains type errors. Correct the JSON to match its structure.",
+  "请先修复滤镜排序字段中的类型错误。": "Correct the type errors in the filter order field first.",
   "离线 FFmpeg 命令生成器，预设兼容基线为 FFmpegFreeUI（3FUI）{0}，采用 v6 JSON 格式。": "An offline FFmpeg command builder compatible with FFmpegFreeUI (3FUI) {0} v6 JSON presets.",
   "预设兼容基线 {0} · {1}": "Preset compatibility: {0} · {1}",
   "新建方案": "New plan",

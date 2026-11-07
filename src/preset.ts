@@ -5,6 +5,19 @@ import { sourceText, type Translate } from './i18n';
 export const data = upstream as unknown as { defaults: Preset; schema: Schema; video: Record<string, any>; audio: any[]; builtins: { 名称: string; 数据: Preset }[] };
 export const schema = data.schema;
 export const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+export function matchesFieldType(value: unknown, spec: Schema): boolean {
+  if (value == null) { return true; }
+  if (spec.kind === 'array') { return Array.isArray(value); }
+  if (spec.kind === 'object') { return typeof value === 'object' && !Array.isArray(value); }
+  return spec.kind === 'enum' ? typeof value === 'string' || typeof value === 'number' : typeof value === spec.kind;
+}
+export function matchesFieldShape(value: any, spec: Schema): boolean {
+  if (!matchesFieldType(value, spec)) { return false; }
+  if (value == null) { return true; }
+  if (spec.kind === 'array') { return value.every((item: unknown) => matchesFieldShape(item, spec.items!)); }
+  if (spec.kind === 'object') { return Object.entries(spec.fields!).every(([key, child]) => matchesFieldShape(value[key], child)); }
+  return true;
+}
 const meaningful = (v: unknown): boolean => v !== null && v !== '' && v !== false && v !== 0 && (Array.isArray(v) ? v.length > 0 : typeof v === 'object' ? Object.values(v as object).some(meaningful) : true);
 
 function normalize(value: any, spec: Schema, fallback: any, path: string, issues: Issue[], t: Translate): any {
