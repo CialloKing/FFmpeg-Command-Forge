@@ -78,22 +78,29 @@ function nameFor(a: Preset, input: string, c: ExecutionContext, taskId: string):
 export const localFile = (path: string) => !!path && path !== '-' && !isPlaceholder(path) && !isProtocol(path);
 export const incrementalNaming = (mode: number) => [1, 2, 11, 12].includes(mode);
 
-function uniqueOutput(base: string, ext: string, mode: number, used: Set<string>, key: (s: string) => string): string {
+function uniqueOutput(base: string, ext: string, mode: number, used: Set<string>, key: (s: string) => string, ranges: Map<string, [bigint, bigint]>): string {
   let candidate = base + ext;
-  if ([11, 12].includes(mode)) {
+  const numbered = mode === 11 || mode === 12;
+  if (numbered || used.has(key(candidate))) {
     const { base: name, digits } = splitTrailingSerial(base);
-    const width = Math.max(mode === 11 ? 2 : 3, digits.length);
-    const previous = BigInt(digits || '0');
+    const width = numbered ? Math.max(mode === 11 ? 2 : 3, digits.length) : 0;
+    const prefix = numbered ? name : base.replace(/~\d+$/, '') + '~';
+    const previous = numbered ? BigInt(digits || '0') : 0n;
     // 3FUI reads the existing suffix as a signed 64-bit integer.
     let serial = previous < 9223372036854775807n ? previous + 1n : 1n;
-    do {
-      candidate = name + serial.toString().padStart(width, '0') + ext;
+    // 只缓存实际检查过的连续区间，保留不同任务的起点及区间之前的空洞。
+    // 使用原始前后缀分组，避免把带尾空格的前缀当完整路径规范化后错误合并。
+    const group = JSON.stringify([prefix, ext, width]);
+    const range = ranges.get(group);
+    const start = serial;
+    while (true) {
+      if (range && serial >= range[0] && serial <= range[1]) { serial = range[1] + 1n; }
+      candidate = prefix + serial.toString().padStart(width, '0') + ext;
+      if (!used.has(key(candidate))) { break; }
       serial++;
-    } while (used.has(key(candidate)));
-  } else if ([1, 2].includes(mode)) {
-    const name = base.replace(/~\d+$/, '');
-    let serial = 1;
-    while (used.has(key(candidate))) { candidate = name + '~' + serial++ + ext; }
+    }
+    ranges.set(group, range && start <= range[1] + 1n && serial + 1n >= range[0]
+      ? [start < range[0] ? start : range[0], serial > range[1] ? serial : range[1]] : [start, serial]);
   }
   used.add(key(candidate)); return candidate;
 }
@@ -183,6 +190,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   });
   const sourceTasks = new Map(inputs.flatMap(({ reads }, i) => reads.filter(localFile).map(path => [key(path), i + 1] as const)));
   const used = new Set<string>();
+  const serialRanges = new Map<string, [bigint, bigint]>();
   const fixedTasks = new Map<string, number>();
   const outputDirectory = executionPath(c.outputDirectory) || a.输出位置 || a.输出目录;
   if (!c.inputs.length) { problem('missing', t('请添加至少一个输入文件')); }
@@ -218,7 +226,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   for (const id of sourceTasks.keys()) { used.add(id); }
   for (const id of fixedTasks.keys()) { used.add(id); }
   for (const { task, input, external, sidecars, reads, parsed, candidateStem, naming, base, suffix, fixed, opaqueReads } of entries) {
-    const output = incrementalNaming(naming) ? uniqueOutput(base, suffix, naming, managed ? used : new Set(), key) : fixed;
+    const output = incrementalNaming(naming) ? uniqueOutput(base, suffix, naming, managed ? used : new Set(), key, managed ? serialRanges : new Map()) : fixed;
     if (c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(output)) { problem('missing', t('指定输出文件仍是 Windows 路径，请显式映射到目标系统')); }
     if (!custom) {
       const actualExt = extension(output, style).toLowerCase(), matroska = ['.mkv', '.mka', '.mks', '.mk3d'].includes(actualExt), cover = matroska || ['.mp4', '.m4v', '.m4a', '.mov', '.3gp', '.3g2'].includes(actualExt);

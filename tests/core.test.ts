@@ -5,7 +5,7 @@ import { data, exportPreset, importPreset, patchPreset, schema } from '../src/pr
 import { buildPlan, defaultContext } from '../src/plan';
 import { parseArguments, windowsQuote } from '../src/arguments';
 import { argumentReads } from '../src/arguments';
-import { dirname, filename, relativeSubdirectory, seconds, stem, substitute } from '../src/paths';
+import { dirname, filename, pathKey, relativeSubdirectory, seconds, stem, substitute } from '../src/paths';
 import ffmpegFull from '../src/data/ffmpeg-full-2026.11.3.json';
 
 test('预设往返保留原始嵌套数据，未知内容阻断执行', async () => {
@@ -143,6 +143,44 @@ test('探测和转码使用同一份路径映射，显式输出提供容器后�
   const custom = await buildPlan(importPreset({ 自定义参数_完全自己写: '-i "<InputFile>" -i "D:\\Media\\extra.mkv" "<OutputFile>"' }), c);
   assert.equal(custom.status, 'ready', JSON.stringify(custom.issues));
   assert.deepEqual(custom.tasks[0].stages[0].args, ['-i', '/source/input', '-i', '/source/extra.mkv', '/source/render/out.mkv']);
+});
+
+test('批量命名区间跳跃与逐项试探一致，保留不同起点和路径语义', async () => {
+  const names = ['clip00', 'clip98', 'clip01', 'clip00', 'clip08', 'clip999', 'clip00008', 'clip 00', 'CLIP00',
+    'clip20261106192345000', 'clip9223372036854775806', 'clip9223372036854775807', 'clip9223372036854775808',
+    'clip00000000000000000000000000000009', ...Array(100).fill('clip00')];
+  for (const platform of ['windows', 'linux'] as const) {
+    const c = defaultContext(); c.platform = platform; c.shell = platform === 'windows' ? 'powershell' : 'bash';
+    c.outputDirectory = platform === 'windows' ? 'D:/Output' : '/output';
+    const root = platform === 'windows' ? 'D:/Source' : '/source';
+    c.inputs = names.map((name, index) => ({ id: String(index), path: `${root}/${index}/${name}.mp4` }));
+    c.inputs.push({ id: 'fixed', path: `${root}/reserved.mp4`, output: `${c.outputDirectory}/clip02.mkv` });
+    for (const mode of [1, 2, 11, 12]) {
+      const plan = await buildPlan(importPreset({ 输出容器: 'mkv', 输出_自动命名选项: mode }), c);
+      const key = (value: string) => pathKey(value, platform === 'windows');
+      const used = new Set([...c.inputs.map(task => key(task.path)), key(c.inputs.at(-1)!.output!)]);
+      const expected = c.inputs.map((task, index) => {
+        if (task.output) { return key(task.output); }
+        const name = names[index];
+        let base = `${c.outputDirectory}/${name}`;
+        if (mode === 1) { base += '_' + c.clock; }
+        if (mode === 2) { base += '~1'; }
+        let output = base + '.mkv';
+        if (mode >= 11) {
+          const [, prefix, digits] = /^(.*?)(\d*)$/.exec(base)!;
+          const number = BigInt(digits || '0');
+          let serial = number < 9223372036854775807n ? number + 1n : 1n;
+          const width = Math.max(mode === 11 ? 2 : 3, digits.length);
+          do { output = prefix + (serial++).toString().padStart(width, '0') + '.mkv'; } while (used.has(key(output)));
+        } else {
+          let serial = 1;
+          while (used.has(key(output))) { output = base.replace(/~\d+$/, '') + '~' + serial++ + '.mkv'; }
+        }
+        used.add(key(output)); return key(output);
+      });
+      assert.deepEqual(plan.tasks.map(task => key(task.output)), expected, `${platform}/${mode}`);
+    }
+  }
 });
 
 test('批量固定输出不能占用其他输入或输出', async () => {
