@@ -17,7 +17,7 @@ export function mapPath(path: string, c: ExecutionContext): string {
   let best: { prefix: string; to: string; windows: boolean } | undefined;
   for (const { from, to } of c.pathMappings) {
     if (!from || !to) { continue; }
-    const windows = windowsAbsolute(from) || from.includes('\\');
+    const windows = windowsAbsolute(from) || !from.startsWith('/') && from.includes('\\');
     const key = (value: string) => windows ? value.replaceAll('\\', '/').toLowerCase() : value;
     const prefix = from.replace(windows ? /[\\/]+$/ : /\/+$/, '');
     if (best && prefix.length <= best.prefix.length) { continue; }

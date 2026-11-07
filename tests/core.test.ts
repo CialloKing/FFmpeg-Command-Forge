@@ -173,6 +173,9 @@ test('目标系统决定反斜杠语义，Windows 来源映射保持原有规则
   c.pathMappings = [{ from: 'D:\\Media', to: '/media/中文 path' }];
   c.inputs[0].path = 'd:/media/part/clip.mp4';
   assert.equal((await buildPlan(importPreset({ 输出容器: 'mkv', 输出_自动命名选项: 0 }), c)).tasks[0].output, '/media/中文 path/part/clip.mkv');
+  c.pathMappings = [{ from: '/media/dir\\name', to: '/target' }];
+  c.inputs[0].path = '/media/dir\\name/Leaf\\keep.mp4';
+  assert.equal((await buildPlan(importPreset({ 输出容器: 'mkv', 输出_自动命名选项: 0 }), c)).tasks[0].output, '/target/Leaf\\keep.mkv');
 });
 
 test('附加参数的输入先映射再保留，协议输入关闭覆盖授权', async () => {
