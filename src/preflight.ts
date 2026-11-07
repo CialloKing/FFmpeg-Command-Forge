@@ -1,4 +1,4 @@
-import { extension, splitTrailingSerial, withoutExtension } from './paths';
+import { extension, pathKey, splitTrailingSerial, withoutExtension } from './paths';
 import { incrementalNaming, localFile } from './plan';
 import type { CommandPlan, PlannedTask } from './types';
 import type { Translate } from './i18n';
@@ -61,6 +61,12 @@ export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
     `$forgeSources = @(${sources.map(psQuote).join(', ')}) | ForEach-Object { [IO.Path]::GetFullPath(${psPath('$_')}) }`,
     'foreach ($forgeSourcePath in $forgeSources) { [void]$forgePaths.Add($forgeSourcePath) }'
   ];
+  const ranges = new Map<string, number>();
+  if (outputs.some(({ task }) => task.naming >= 11)) {
+    lines.push('$forgeRanges = @{}',
+      'function Get-ForgeNextSerial([bigint]$number,$range) { if ($range -and $number -ge $range[0] -and $number -le $range[1]) { $number = $range[1] }; [bigint]::Add($number,1) }',
+      'function Merge-ForgeRange([bigint]$start,[bigint]$end,$range) { if ($range -and $start -le [bigint]::Add($range[1],1) -and [bigint]::Add($end,1) -ge $range[0]) { if ($range[0] -lt $start) { $start = $range[0] }; if ($range[1] -gt $end) { $end = $range[1] } }; ,@($start,$end) }');
+  }
   const mayOverwrite = plan.allowOverwrite && outputs.some(({ task }) => task.stagedOutput && !incrementalNaming(task.naming)) && !opaqueInputs;
   if (mayOverwrite) {
     const stat = plan.context.platform === 'macos' ? '& /usr/bin/stat -L -f %d:%i $p' : '& stat -Lc %d:%i -- $p';
@@ -77,8 +83,17 @@ export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
       const numbered = task.naming >= 11;
       const value = numbered ? `[bigint]${psQuote(digits)}` : '1';
       const format = numbered ? `$forgeNumber.ToString(${psQuote('0'.repeat(digits.length))})` : '$forgeNumber.ToString()';
-      const increment = numbered ? '$forgeNumber = [bigint]::Add($forgeNumber, [bigint]1)' : '$forgeNumber++';
-      lines.push(`$forgeNumber = ${value}; while ($forgePaths.Contains($p) -or (Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue)) { $p = [IO.Path]::GetFullPath(${psPath(`(${psQuote(base)} + ${format} + ${psQuote(ext)})`)}); ${increment} }`);
+      const candidate = `$p = [IO.Path]::GetFullPath(${psPath(`(${psQuote(base)} + ${format} + ${psQuote(ext)})`)})`;
+      if (numbered) {
+        const key = JSON.stringify([pathKey(base, windows), ext, task.naming, digits.length]);
+        if (!ranges.has(key)) { ranges.set(key, ranges.size); }
+        const id = ranges.get(key)!;
+        lines.push(`$forgeNumber = ${value}; $forgeStart = $forgeNumber; $forgeRange = $forgeRanges[${id}]`,
+          `while ($forgePaths.Contains($p) -or (Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue)) { $forgeNumber = Get-ForgeNextSerial $forgeNumber $forgeRange; ${candidate} }`,
+          `$forgeRanges[${id}] = Merge-ForgeRange $forgeStart $forgeNumber $forgeRange`);
+      } else {
+        lines.push(`$forgeNumber = ${value}; while ($forgePaths.Contains($p) -or (Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue)) { ${candidate}; $forgeNumber++ }`);
+      }
     } else {
       lines.push(`if ($forgePaths.Contains($p)) { throw (${occupied} + $p) }`, '$item = Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue');
       if (!mayOverwrite || !task.stagedOutput) { lines.push(`if ($item) { throw (${occupied} + $p) }`); }
@@ -142,7 +157,33 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
       '  local prefix=$1 suffix= digit',
       '  while [ "${prefix%9}" != "$prefix" ]; do prefix=${prefix%9}; suffix=0$suffix; done',
       '  digit=${prefix#"${prefix%?}"}',
-      '  printf "%s%s%s" "${prefix%?}" "$(( ${digit:-0} + 1 ))" "$suffix"',
+      '  forge_serial_result="${prefix%?}$(( ${digit:-0} + 1 ))$suffix"',
+      '}',
+      'forge_compare_serial() {',
+      '  local left=$1 right=$2',
+      '  if [ "${#left}" -lt "${#right}" ]; then forge_cmp=-1',
+      '  elif [ "${#left}" -gt "${#right}" ]; then forge_cmp=1',
+      '  elif [ "$left" = "$right" ]; then forge_cmp=0',
+      '  elif [[ "$left" < "$right" ]]; then forge_cmp=-1; else forge_cmp=1; fi',
+      '}',
+      'forge_next_serial() {',
+      '  local number=$1 low=$2 high=$3',
+      '  if [ -n "$low" ]; then',
+      '    forge_compare_serial "$number" "$low"',
+      '    if [ "$forge_cmp" -ge 0 ]; then forge_compare_serial "$number" "$high"; if [ "$forge_cmp" -le 0 ]; then number=$high; fi; fi',
+      '  fi',
+      '  forge_increment_serial "$number"',
+      '}',
+      'forge_merge_range() {',
+      '  local start=$1 end=$2 low=$3 high=$4',
+      '  forge_range_low=$start; forge_range_high=$end',
+      '  if [ -z "$low" ]; then return; fi',
+      '  forge_increment_serial "$end"; forge_compare_serial "$forge_serial_result" "$low"',
+      '  if [ "$forge_cmp" -lt 0 ]; then return; fi',
+      '  forge_increment_serial "$high"; forge_compare_serial "$start" "$forge_serial_result"',
+      '  if [ "$forge_cmp" -gt 0 ]; then return; fi',
+      '  forge_compare_serial "$start" "$low"; if [ "$forge_cmp" -gt 0 ]; then forge_range_low=$low; fi',
+      '  forge_compare_serial "$end" "$high"; if [ "$forge_cmp" -lt 0 ]; then forge_range_high=$high; fi',
       '}');
   }
   const mayOverwrite = plan.allowOverwrite && outputs.some(({ task }) => task.stagedOutput && !incrementalNaming(task.naming)) && !opaqueInputs;
@@ -153,6 +194,7 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
       `forge_identity_error() { printf '%s%s\\n' ${posixQuote(t('无法安全确认输出文件可以覆盖：'))} "$1" >&2; exit 1; }`);
   }
   const series = new Map<string, string>();
+  const ranges = new Map<string, number>();
   for (const { task, index } of [...outputs.filter(x => !incrementalNaming(x.task.naming)), ...outputs.filter(x => incrementalNaming(x.task.naming))]) {
     const resolve = `forge_key "$forge_target" ${parentSlot(task.output)}`;
     lines.push(`forge_target=${posixQuote(task.output)}`, resolve);
@@ -162,11 +204,24 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
       const key = JSON.stringify([base, ext]);
       const next = series.get(key) ?? `forge_next_${series.size}`;
       if (!numbered) { series.set(key, next); }
-      lines.push(`forge_number=${numbered ? digits : `\${${next}:-1}`}`, 'while [ -e "$forge_target" ] || [ -L "$forge_target" ] || forge_taken; do',
-        `  forge_target=${posixQuote(base)}"$forge_number"${posixQuote(ext)}`,
-        '  ' + resolve,
-        numbered ? '  forge_number=$(forge_increment_serial "$forge_number")' : '  forge_number=$((forge_number + 1))', 'done');
-      if (!numbered) { lines.push(`${next}=$forge_number`); }
+      if (numbered) {
+        const family = JSON.stringify([pathKey(base, false), ext, task.naming, digits.length]);
+        if (!ranges.has(family)) { ranges.set(family, ranges.size); }
+        const id = ranges.get(family)!;
+        const start = digits.replace(/^0+/, '') || '0';
+        lines.push(`forge_number=${start}; forge_start=$forge_number`,
+          'while [ -e "$forge_target" ] || [ -L "$forge_target" ] || forge_taken; do',
+          `  forge_next_serial "$forge_number" "\${forge_low_${id}:-}" "\${forge_high_${id}:-}"`,
+          '  forge_number=$forge_serial_result; forge_digits=$forge_number',
+          `  while [ "\${#forge_digits}" -lt ${digits.length} ]; do forge_digits=0$forge_digits; done`,
+          `  forge_target=${posixQuote(base)}"$forge_digits"${posixQuote(ext)}`, '  ' + resolve, 'done',
+          `forge_merge_range "$forge_start" "$forge_number" "\${forge_low_${id}:-}" "\${forge_high_${id}:-}"`,
+          `forge_low_${id}=$forge_range_low; forge_high_${id}=$forge_range_high`);
+      } else {
+        lines.push(`forge_number=\${${next}:-1}`, 'while [ -e "$forge_target" ] || [ -L "$forge_target" ] || forge_taken; do',
+          `  forge_target=${posixQuote(base)}"$forge_number"${posixQuote(ext)}`, '  ' + resolve,
+          '  forge_number=$((forge_number + 1))', 'done', `${next}=$forge_number`);
+      }
     } else {
       lines.push('if forge_taken; then forge_conflict "$forge_target"; fi');
       if (!mayOverwrite || !task.stagedOutput) { lines.push('if [ -e "$forge_target" ] || [ -L "$forge_target" ]; then forge_conflict "$forge_target"; fi'); }
