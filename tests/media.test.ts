@@ -128,6 +128,16 @@ test('转码前检查整批输出，覆盖授权拒绝源文件硬链接', { ski
   execute(await buildPlan(doc, c, english, true), dir, true);
   assert.deepEqual(readFileSync(input), original);
   assert.deepEqual(readFileSync(alias), original);
+  c.inputs[0].output = 'occupied.mkv';
+  const extraDoc = importPreset({ 视频参数_编码器_具体编码: 'copy', 自定义参数_之前参数: '-i "' + target + '"' });
+  const extra = await buildPlan(extraDoc, c, english, true);
+  assert.equal(extra.status, 'incompatible');
+  const before = readFileSync(target);
+  const guardedScript = path.join(dir, 'guarded.ps1');
+  writeFileSync(guardedScript, renderPlan(extra, english).bundleScripts.find(file => file.name.endsWith('.ps1'))!.content);
+  const blocked = spawnSync(pwsh, ['-NoProfile', '-File', guardedScript], { encoding: 'utf8', timeout: 15000 });
+  assert.notEqual(blocked.status, 0);
+  assert.deepEqual(readFileSync(target), before);
 });
 
 test('辅助文件按 UTF-8 写入且阶段失败后不继续', { skip: process.platform !== 'win32' }, async () => {

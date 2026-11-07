@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { data, exportPreset, importPreset, patchPreset, schema } from '../src/preset';
 import { buildPlan, defaultContext } from '../src/plan';
 import { parseArguments, windowsQuote } from '../src/arguments';
+import { argumentReads } from '../src/arguments';
 import { relativeSubdirectory, seconds } from '../src/paths';
 import ffmpegFull from '../src/data/ffmpeg-full-2026.11.3.json';
 
@@ -155,4 +156,20 @@ test('批量固定输出不能占用其他输入或输出', async () => {
   const plan = await buildPlan(importPreset({}), c);
   assert.equal(plan.status, 'incompatible');
   assert.equal(plan.issues.filter(issue => issue.level === 'error').length, 2);
+});
+
+test('附加参数的输入先映射再保留，协议输入关闭覆盖授权', async () => {
+  const c = defaultContext();
+  c.cwd = 'D:\\Media';
+  c.pathMappings = [{ from: 'X:\\Assets', to: 'D:\\Media' }];
+  c.inputs = [{ id: 'one', path: 'primary.mkv', output: 'folder/../secondary.mkv' }];
+  const doc = importPreset({ 自定义参数_之前参数: '-i "X:\\Assets\\secondary.mkv" -attach "attachment.ttf"' });
+  const plan = await buildPlan(doc, c, undefined, true);
+  assert.equal(plan.status, 'incompatible');
+  assert.ok(plan.tasks[0].reads?.includes('D:\\Media\\secondary.mkv'));
+  assert.ok(plan.tasks[0].reads?.includes('D:\\Media\\attachment.ttf'));
+  const remote = await buildPlan(importPreset({ 自定义参数_之前参数: '-i "https://example.com/input.mkv"' }), { ...c, inputs: [{ id: 'one', path: 'primary.mkv', output: 'output.mkv' }] }, undefined, true);
+  assert.equal(remote.status, 'ready');
+  assert.equal(remote.allowOverwrite, false);
+  assert.deepEqual(argumentReads(['-metadata', '-i', '-i', 'real.mkv']).indices, [3]);
 });

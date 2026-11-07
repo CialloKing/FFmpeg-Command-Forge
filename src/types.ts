@@ -33,6 +33,7 @@ export interface PlannedTask {
   managedOutput?: boolean;
   stagedOutput?: boolean;
   reads?: string[];
+  opaqueReads?: boolean;
   streams?: StreamSummary;
 }
 export interface CommandPlan { status: 'ready' | 'missing' | 'incompatible'; issues: Issue[]; tasks: PlannedTask[]; probes: CommandStage[]; context: ExecutionContext; preset: Preset; allowOverwrite?: boolean }

@@ -42,6 +42,34 @@ export function presetArguments(text: string, input: string, output: string, map
   if (args.length !== original.length) { return args; }
   return args.map((arg, index) => arg === original[index] ? mapLiteral(arg) : arg);
 }
+
+const flagOptions = new Set(['-y', '-n', '-hide_banner', '-nostdin', '-stdin', '-re', '-an', '-vn', '-sn', '-dn', '-shortest', '-bitexact', '-copyts', '-start_at_zero', '-copyinkf', '-ignore_unknown', '-copy_unknown', '-stats', '-nostats', '-xerror']);
+const valueOptions = /^(?:-metadata|-map|-map_metadata|-map_chapters|-c|-codec|-filter|-vf|-af|-filter_complex|-lavfi|-f|-ss|-to|-t|-itsoffset|-itsscale|-stream_loop|-loop|-loglevel|-v|-threads|-b|-q|-crf|-preset|-profile|-tune)(?::.*)?$/;
+const readOption = /^(?:-i|-attach(?::.*)?|-filter_script(?::.*)?|-filter_complex_script)$/;
+
+export function argumentReads(args: readonly string[]): { indices: number[]; opaque: boolean } {
+  const indices: number[] = [];
+  let opaque = false;
+  for (let i = 0; i < args.length; i++) {
+    const option = args[i];
+    if (readOption.test(option)) {
+      if (args[i + 1] === undefined) { opaque = true; continue; }
+      indices.push(++i);
+      if (option !== '-i' && !option.startsWith('-attach')) { opaque = true; }
+      continue;
+    }
+    if (flagOptions.has(option) || !option.startsWith('-')) { continue; }
+    const value = args[i + 1];
+    if (value === undefined) { continue; }
+    if (option === '-f' && /^(concat|lavfi)$/i.test(value)) { opaque = true; }
+    if (/^(?:-vf|-af|-filter(?::.*)?|-filter_complex|-lavfi)$/.test(option) &&
+      /(?:^|[;,\]])\s*(?:a?movie)\s*=|(?:filename|fontfile|textfile|custom_shader_path)\s*=/i.test(value)) { opaque = true; }
+    // Known values such as metadata may themselves look like switches.
+    if (valueOptions.test(option) || !value.startsWith('-')) { i++; }
+    else if (readOption.test(value)) { opaque = true; }
+  }
+  return { indices, opaque };
+}
 export function add(parts: string[], name: string, value: unknown, selector = ''): void {
   if (!name?.trim() || value === '' || value === null || value === undefined) { return; }
   parts.push(withSelector(name.startsWith('-') ? name : '-' + name, selector), String(value));

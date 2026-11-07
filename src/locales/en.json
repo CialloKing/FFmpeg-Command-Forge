@@ -227,6 +227,7 @@
   "任务：": "Task: ",
   "输出：": "Output: ",
   "输出流": "Output streams",
+  "部分输入或自定义资源无法完整枚举，覆盖授权已禁用。": "Some inputs or custom resources cannot be fully enumerated. Overwrite permission is disabled.",
   "已确认匹配": "Confirmed match",
   "映射待确认": "Mapping not yet confirmed",
   "若可选映射均未匹配，FFmpeg 可能自动选择。": "FFmpeg may select streams automatically if no optional maps match.",

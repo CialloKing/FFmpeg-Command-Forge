@@ -4,7 +4,7 @@ import { normalizeOrder, subtitleCandidates } from './filters';
 import { buildGraph, summarizeStreams } from './graph';
 import { audioCodec, encode, twoPass, videoCodec } from './codecs';
 import { extraOutputs } from './extra';
-import { add, presetArguments } from './arguments';
+import { add, argumentReads, presetArguments } from './arguments';
 import { dirname, extension, filename, filterOptionValue, filterPath, formatSeconds, isAbsolute, isPlaceholder, isPresetPathField, isProtocol, join, pathKey, relativeSubdirectory, seconds, splitTrailingSerial, stem, windowsAbsolute, withoutExtension } from './paths';
 import { sourceText, type Translate } from './i18n';
 
@@ -150,24 +150,40 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   if (!custom && [4, 6].includes(a.剪辑区间_方法)) { for (const key of ['剪辑区间_入点', '剪辑区间_出点']) { if (a[key].includes(':') && seconds(a[key]) === undefined) { problem('error', t('{0} 的时间格式无法解析，请使用有效的 hh:mm:ss 或小数秒，避免省略剪辑区间', key), key); } } }
   const windows = c.platform === 'windows';
   const key = (path: string) => pathKey(path, windows);
+  const outputMarker = '\uE000' + crypto.randomUUID() + '\uE001';
+  const argumentFields = ['开头参数', '之前参数', '之后参数', '最后参数', '视频参数', '音频参数'].map(name => a['自定义参数_' + name]);
+  const literalMapping = c.pathMappings.length ? (arg: string) => mapPath(arg, c) : undefined;
   const autoSubtitle = ['SRT', 'ASS', 'SSA'].some(k => a['流控制_自动混流' + k]);
   const inputs = c.inputs.map(task => {
     const input = executionPath(task.path.trim());
     const external = task.subtitle ? executionPath(task.subtitle) : undefined;
     const sidecars = autoSubtitle ? (task.sidecars || []).filter(file => a['流控制_自动混流' + extension(file).slice(1).toUpperCase()]).map(executionPath) : [];
     const reads = [input];
+    const parsed = new Map<string, string[]>();
+    let opaqueReads = false;
+    for (const text of custom ? [custom] : argumentFields) {
+      const args = presetArguments(text, input, outputMarker, literalMapping);
+      parsed.set(text, args);
+      const scan = argumentReads(args);
+      opaqueReads ||= scan.opaque;
+      for (const index of scan.indices) {
+        const path = args[index];
+        if (path.includes(outputMarker)) { opaqueReads = true; continue; }
+        reads.push(resolvePath(path, c));
+      }
+    }
     if (!custom) {
       if (a.视频参数_烧录字幕_滤镜选择 && a.视频参数_烧录字幕_字幕来源是外部文件 === 1 && external) { reads.push(external); }
       if (a.章节_来源) { reads.push(a.章节_文件路径.trim()); }
       reads.push(...sidecars, ...a.附件_要写入的附件.filter((item: Preset) => item.类型).map((item: Preset) => item.文件路径.trim()));
+      reads.push(...a.视频参数_超分_滤镜叠加策略组.map((item: Preset) => item.着色器文件路径).filter(Boolean));
     }
-    return { task, input, external, sidecars, reads: [...new Set(reads.filter(Boolean))] };
+    return { task, input, external, sidecars, parsed, opaqueReads, reads: [...new Set(reads.filter(Boolean))] };
   });
   const sourceTasks = new Map(inputs.flatMap(({ reads }, i) => reads.filter(localFile).map(path => [key(path), i + 1] as const)));
   const used = new Set<string>();
   const fixedTasks = new Map<string, number>();
   const outputDirectory = executionPath(c.outputDirectory) || a.输出位置 || a.输出目录;
-  const outputMarker = '\uE000' + crypto.randomUUID() + '\uE001';
   if (!c.inputs.length) { problem('missing', t('请添加至少一个输入文件')); }
   const entries = inputs.map((entry, i) => {
     const { task } = entry;
@@ -200,7 +216,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   });
   for (const id of sourceTasks.keys()) { used.add(id); }
   for (const id of fixedTasks.keys()) { used.add(id); }
-  for (const { task, input, external, sidecars, reads, candidateStem, naming, base, suffix, fixed } of entries) {
+  for (const { task, input, external, sidecars, reads, parsed, candidateStem, naming, base, suffix, fixed, opaqueReads } of entries) {
     const output = incrementalNaming(naming) ? uniqueOutput(base, suffix, naming, managed ? used : new Set(), key) : fixed;
     if (c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(output)) { problem('missing', t('指定输出文件仍是 Windows 路径，请显式映射到目标系统')); }
     if (!custom) {
@@ -232,8 +248,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
     }
     const stages: CommandStage[] = [];
     const log = phases.length === 2 ? await passlog(input, output, c) : '';
-    const literalMapping = c.pathMappings.length ? (arg: string) => mapPath(arg, c) : undefined;
-    const appendCustom = (args: string[], text: string) => { args.push(...presetArguments(text, input, outputMarker, literalMapping)); };
+    const appendCustom = (args: string[], text: string) => { args.push(...(parsed.get(text) ?? [])); };
     let streams: StreamSummary | undefined;
     for (const phase of phases) {
       const args: string[] = [];
@@ -285,8 +300,20 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
     const stagedOutput = managed && localFile(output) && !/%(?:0?\d+)?d/.test(output) && !/\.(?:m3u8?|mpd|ism[l]?|f4m)$/i.test(output)
       && !stages.some(stage => stage.args.some((arg, i, args) => arg === '-f' && /^(?:hls|dash|(?:s|stream_)?segment|tee|fifo|image2pipe|smoothstreaming|webm_chunk|hds)$/i.test(args[i + 1])));
     if (managed && !stagedOutput) { problem('info', t('序列或分段输出的衍生文件需自行检查，完整脚本不会授权覆盖。')); }
-    tasks.push({ id: task.id, input, output, directory: dirname(output), stages, assets, preserve: { creation: a.输出命名_保留创建时间, modification: a.输出命名_保留修改时间, access: a.输出命名_保留访问时间 }, naming, candidateStem, extension: suffix, managedOutput: managed && localFile(output), stagedOutput, reads, streams });
+    for (const stage of stages) {
+      for (const index of argumentReads(stage.args).indices) {
+        if (index !== stage.assetArg) { reads.push(resolvePath(stage.args[index], c)); }
+      }
+    }
+    tasks.push({ id: task.id, input, output, directory: dirname(output), stages, assets, preserve: { creation: a.输出命名_保留创建时间, modification: a.输出命名_保留修改时间, access: a.输出命名_保留访问时间 }, naming, candidateStem, extension: suffix, managedOutput: managed && localFile(output), stagedOutput, reads: [...new Set(reads)], opaqueReads, streams });
   }
+  const allReads = new Map(tasks.flatMap((task, index) => (task.reads ?? []).filter(localFile).map(path => [key(path), index + 1] as const)));
+  for (const [index, task] of tasks.entries()) {
+    const source = allReads.get(key(task.output));
+    if (task.managedOutput && source !== undefined) { problem('error', t('任务 {0} 的输出与任务 {1} 的输入相同：{2}', index + 1, source, task.output)); }
+  }
+  const opaque = tasks.some(task => task.opaqueReads || task.reads?.some(path => !localFile(path)));
+  if (opaque && managed) { problem('info', t('部分输入或自定义资源无法完整枚举，覆盖授权已禁用。')); }
   for (const item of unconfirmed) {
     const spellings = [item.path, filterPath(item.path), filterOptionValue(item.path)];
     if (tasks.some(task => task.stages.some(stage => stage.args.some(arg => spellings.some(path => arg.includes(path)))))) {
@@ -294,5 +321,5 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
     }
   }
   const uniqueIssues = [...new Map(issues.map(i => [i.level + i.message, i])).values()];
-  return { status: uniqueIssues.some(i => i.level === 'error') ? 'incompatible' : uniqueIssues.some(i => i.level === 'missing') ? 'missing' : 'ready', issues: uniqueIssues, tasks, probes, context: c, preset: a, allowOverwrite };
+  return { status: uniqueIssues.some(i => i.level === 'error') ? 'incompatible' : uniqueIssues.some(i => i.level === 'missing') ? 'missing' : 'ready', issues: uniqueIssues, tasks, probes, context: c, preset: a, allowOverwrite: allowOverwrite && !opaque };
 }

@@ -20,7 +20,7 @@ function batchPaths(plan: CommandPlan) {
   const sources = [...new Set(plan.tasks.flatMap(task => task.reads ?? [task.input]))];
   return {
     sources: sources.filter(localFile),
-    opaqueInputs: sources.some(path => !localFile(path)),
+    opaqueInputs: sources.some(path => !localFile(path)) || plan.tasks.some(task => task.opaqueReads),
     outputs: plan.tasks.flatMap((task, index) => task.managedOutput ? [{ task, index }] : [])
   };
 }
