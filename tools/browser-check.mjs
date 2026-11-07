@@ -328,15 +328,23 @@ assert.equal(await editPage.evaluate(() => document.documentElement.scrollWidth 
 assert.deepEqual(errors, []);
 await editing.close();
 const storageContext = await browser.newContext({ locale: 'zh-CN' });
-await storageContext.addInitScript(({ key, workspace }) => {
-  if (!localStorage.getItem(key)) { localStorage.setItem(key, JSON.stringify(workspace)); }
+await storageContext.addInitScript(key => {
   window.forgeWrites = 0;
   const original = Storage.prototype.setItem;
   Storage.prototype.setItem = function (name, value) { original.call(this, name, value); if (name === key) { window.forgeWrites++; } };
-}, { key: workspaceKey, workspace: { ...savedWorkspace, context: { ...savedWorkspace.context, resources: { 'template.txt': 'x'.repeat(1024 * 1024) } } } });
+}, workspaceKey);
 const storagePage = await storageContext.newPage();
 storagePage.on('pageerror', e => errors.push(e.message));
 await storagePage.goto(pathToFileURL(path.resolve('FFmpeg Command Forge.html')).href);
+// 经真实导入路径建立缓存，避免 file: 导航初始化脚本重建存储影响刷新验收。
+await storagePage.getByRole('button', { name: '工作区', exact: true }).click();
+const storageUpload = storagePage.waitForEvent('filechooser');
+await storagePage.getByRole('button', { name: '导入工作区', exact: true }).click();
+await (await storageUpload).setFiles({ name: 'storage-workspace.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({
+  ...savedWorkspace, context: { ...savedWorkspace.context, resources: { 'template.txt': 'x'.repeat(1024 * 1024) } }
+})) });
+await storagePage.getByText('工作区已恢复', { exact: true }).waitFor();
+await storagePage.evaluate(() => { window.forgeWrites = 0; });
 await storagePage.getByLabel('FFmpeg 程序', { exact: true }).evaluate(input => {
   for (let i = 0; i < 30; i++) { input.value = 'ffmpeg-' + i; input.dispatchEvent(new Event('input', { bubbles: true })); }
 });
