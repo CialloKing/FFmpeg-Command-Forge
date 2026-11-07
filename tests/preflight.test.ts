@@ -14,8 +14,8 @@ test('序号预检保持空洞、起始值、前导零和长整数语义', async
   mkdirSync('.cache', { recursive: true });
   const shells = process.platform === 'win32' ? [pwsh, 'powershell.exe', gitBash()] :
     process.platform === 'darwin' ? ['bash', 'zsh'] : ['bash'];
-  const occupied = ['clip02', 'clip03', 'clip09', 'clip10', 'clip99', 'clip100', 'clip999', 'clip1000', 'clip20261106192345001'];
-  const inputs = ['clip00', 'clip98', 'clip01', 'clip00', 'clip08', 'clip999', 'clip20261106192345000'];
+  const occupied = ['clip02', 'clip03', 'clip09', 'clip10', 'clip99', 'clip100', 'clip999', 'clip1000', 'clip00009', 'clip00010', 'clip20261106192345001', 'clip9223372036854775807', 'clip9223372036854775808'];
+  const inputs = ['clip00', 'clip98', 'clip01', 'clip00', 'clip08', 'clip999', 'clip00008', 'clip20261106192345000', 'clip9223372036854775806'];
   for (const shell of shells) {
     const powershell = /powershell|pwsh/i.test(shell);
     const dir = mkdtempSync(path.resolve('.cache/serial-'));
