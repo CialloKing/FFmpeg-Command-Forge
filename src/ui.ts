@@ -137,7 +137,11 @@ try {
   const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]');
   if (Array.isArray(stored)) { library = stored.filter(x => x && typeof x.name === 'string' && x.preset && typeof x.preset === 'object' && !Array.isArray(x.preset)); }
 } catch { /* Saved presets are independent of workspace recovery. */ }
-function edit(path: FieldPath, value: unknown): void { state.editPreset(path, value); schedule(); }
+function edit(path: FieldPath, value: unknown): void {
+  state.editPreset(path, value); schedule();
+  // 排序面板与字段编辑共享同一预设，立即刷新以免沿用旧的生成 ID 和滤镜内容。
+  document.querySelector('#filter-order')?.replaceChildren(filterOrder());
+}
 function updateContext(update: (context: ExecutionContext) => void): void { state.updateContext(update); schedule(); }
 function updateTask(id: string, update: (task: InputTask) => void): void { if (state.updateTask(id, update)) { schedule(); } }
 
@@ -304,7 +308,7 @@ function renderEditor(): void {
 function renderParameterList(): void {
   const body = $('#editor-content'); body.replaceChildren(); const stack = el('div', 'stack');
   const keys = Object.keys(schema.fields!).filter(k => query ? `${k} ${parameterLabel(locale, k)} ${fieldHint(k)} ${groupFor(k)} ${t(groupFor(k))} ${JSON.stringify(state.doc.raw[k] ?? '')}`.toLowerCase().includes(query.toLowerCase()) : groupFor(k) === selected);
-  if (!query && selected === '画面') { stack.append(filterOrder()); }
+  if (!query && selected === '画面') { const order = el('div'); order.id = 'filter-order'; order.append(filterOrder()); stack.append(order); }
   const card = el('div', 'card parameter-fields');
   for (const key of keys) { card.append(parameterField(key, schema.fields![key], state.doc.raw[key] ?? data.defaults[key] ?? blankValue(schema.fields![key]), [key])); }
   stack.append(el('div', 'row between', ''), card); const count = stack.firstChild instanceof HTMLElement && stack.firstChild.className === 'row between' ? stack.firstChild : undefined;

@@ -284,6 +284,26 @@ await editPage.getByText('请先修复滤镜排序字段中的类型错误。', 
 await editPage.getByRole('button', { name: '附件_要写入的附件[0] 必须是对象', exact: true }).click();
 assert.equal(await badAttachment.evaluate(detail => detail.open), true);
 assert.equal(await badAttachment.getByRole('button', { name: '编辑此字段 JSON' }).evaluate(node => node === document.activeElement), true);
+const noIds = { 预设文件版本: 6, 滤镜排序系统: [
+  { 显示名称: 'first', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'hflip', 扩展: { keep: true } },
+  { 显示名称: 'second', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'vflip' }
+] };
+const noIdChooser = editPage.waitForEvent('filechooser');
+await editPage.getByRole('button', { name: '导入预设', exact: true }).click();
+await (await noIdChooser).setFiles({ name: 'filters.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(noIds)) });
+await editPage.getByRole('button', { name: '画面', exact: true }).click();
+const filters = editPage.locator('details').filter({ has: editPage.locator('summary').filter({ hasText: '滤镜排序系统' }) });
+await filters.locator('summary').click();
+await filters.getByLabel('自定义滤镜内容', { exact: true }).first().fill('negate');
+await filters.getByLabel('自定义滤镜内容', { exact: true }).first().press('Tab');
+await editPage.locator('.filter-item').first().getByRole('button', { name: '↓', exact: true }).click();
+assert.deepEqual(await editPage.locator('.filter-detail').allTextContents(), ['vflip', 'negate']);
+const sortedExport = editPage.waitForEvent('download');
+await editPage.getByRole('button', { name: '导出预设', exact: true }).click();
+assert.deepEqual(JSON.parse(await readFile(await (await sortedExport).path(), 'utf8')).滤镜排序系统[1].扩展, { keep: true });
+await editPage.getByRole('button', { name: '未识别的非空字段：滤镜排序系统[1].扩展', exact: true }).click();
+assert.equal(JSON.parse(await editPage.getByRole('dialog').getByRole('textbox').inputValue()).滤镜排序系统[1].自定义滤镜内容, 'negate');
+await editPage.getByRole('dialog').press('Escape');
 await editPage.setViewportSize({ width: 1536, height: 1000 });
 await editPage.getByRole('button', { name: '新建方案', exact: true }).click();
 await editPage.getByRole('button', { name: '+ 添加输入', exact: true }).click();
@@ -294,6 +314,7 @@ await editPage.getByRole('button', { name: '输出', exact: true }).click();
 await editPage.getByLabel('搜索全部参数').fill('nothing-matches');
 await secondMissing.focus(); await secondMissing.press('Enter');
 assert.equal(await editPage.getByLabel('输入文件 2 路径').evaluate(node => node === document.activeElement), true);
+await editPage.screenshot({ path: '.cache/ui-diagnostics.png', fullPage: true });
 await editPage.getByRole('button', { name: '移除', exact: true }).first().click();
 const remainingMissing = editPage.getByRole('button', { name: '请填写输入文件的实际执行路径', exact: true });
 await remainingMissing.click();
