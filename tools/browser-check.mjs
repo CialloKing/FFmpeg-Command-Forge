@@ -126,6 +126,27 @@ await page.getByRole('alert').getByText(/context\.inputs\[0\]\.sidecars/).waitFo
 assert.equal(await page.getByLabel('输入文件 1 路径').inputValue(), savedWorkspace.context.inputs[0].path);
 await uploadWorkspace(savedWorkspace);
 await page.getByText('工作区已恢复', { exact: true }).waitFor();
+await page.getByText('已保存到浏览器', { exact: true }).waitFor();
+const largeWorkspace = structuredClone(savedWorkspace);
+largeWorkspace.context.inputs[0].path = 'D:\\Media\\large-workspace.mkv';
+largeWorkspace.context.resources['large-template.txt'] = 'a'.repeat(6 * 1024 * 1024);
+async function importSavedWorkspace(workspace) {
+  await page.getByRole('button', { name: '工作区', exact: true }).click();
+  await uploadWorkspace(workspace);
+}
+await importSavedWorkspace(largeWorkspace);
+await page.getByText('浏览器缓存容量不足。', { exact: true }).waitFor();
+const rescueDownload = page.waitForEvent('download');
+await page.locator('#cache-status').getByRole('button', { name: '下载工作区' }).click();
+const rescued = JSON.parse(await readFile(await (await rescueDownload).path(), 'utf8'));
+assert.equal(rescued.context.inputs[0].path, largeWorkspace.context.inputs[0].path);
+assert.equal(rescued.context.resources['large-template.txt'].length, 6 * 1024 * 1024);
+await page.reload();
+assert.equal(await page.getByLabel('输入文件 1 路径').inputValue(), savedWorkspace.context.inputs[0].path);
+await importSavedWorkspace(largeWorkspace);
+await page.getByText('当前修改尚未保存', { exact: true }).waitFor();
+await importSavedWorkspace(savedWorkspace);
+await page.getByText('已保存到浏览器', { exact: true }).waitFor();
 const future = { 预设文件版本: 6, 滤镜排序系统: [
   { 实例ID: 'one', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'hflip', 未知扩展: { keep: true } },
   { 实例ID: 'two', 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'vflip' }
@@ -142,9 +163,15 @@ await page.getByLabel('输入文件 1 路径').waitFor();
 assert.equal(await page.getByLabel('输入文件 1 路径').inputValue(), '');
 assert.deepEqual(errors, []); assert.deepEqual(network, []);
 await context.close();
-const blocked = await browser.newContext({ locale: 'zh-CN' });
-await blocked.addInitScript(() => { Object.defineProperty(window, 'localStorage', { get() { throw new Error('blocked'); } }); });
-const blockedPage = await blocked.newPage(); await blockedPage.goto(pathToFileURL(path.resolve('FFmpeg Command Forge.html')).href); await blockedPage.getByRole('heading', { name: '从你的素材开始' }).waitFor(); await blocked.close();
+for (const [name, message] of [['SecurityError', '浏览器阻止了本地存储。'], ['Error', '浏览器缓存写入失败。']]) {
+  const blocked = await browser.newContext({ locale: 'zh-CN' });
+  await blocked.addInitScript(name => { Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('blocked', name); } }); }, name);
+  const blockedPage = await blocked.newPage();
+  await blockedPage.goto(pathToFileURL(path.resolve('FFmpeg Command Forge.html')).href);
+  await blockedPage.getByLabel('输入文件 1 路径').fill('D:\\Media\\unsaved.mkv');
+  await blockedPage.getByText(message, { exact: true }).waitFor();
+  await blocked.close();
+}
 const english = await browser.newContext({ locale: 'en-GB', viewport: { width: 390, height: 844 }, acceptDownloads: true });
 const enPage = await english.newPage();
 enPage.on('pageerror', e => errors.push(e.message));

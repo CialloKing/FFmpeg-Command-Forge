@@ -36,6 +36,8 @@ let previewTab: PreviewTab = 'commands';
 let doc: PresetDocument = readPreset(), context: ExecutionContext = defaultContext(), selected = '任务与环境', query = '', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
 let theme = 'dark';
 let allowOverwrite = false;
+type CacheState = 'saved' | 'quota' | 'blocked' | 'failed';
+let cacheState: CacheState | undefined;
 let library: { name: string; preset: Preset }[] = [];
 function replacePreset(input?: string | Preset): void {
   doc = readPreset(input);
@@ -68,6 +70,7 @@ function mountApp(): void {
       <div><div class="row between"><span class="output-heading">${t('命令工作台')}</span><span class="pill green"><span class="dot"></span>${t('离线运行')}</span></div><div class="subline" id="task-summary">${t('等待配置输入文件')}</div></div>
       <div class="status-card"><div class="status-icon" id="status-icon">◌</div><div><div class="status-title" id="status-title">${t('正在构建')}</div><div class="status-caption" id="status-caption">${t('检查预设与执行环境')}</div></div></div>
       <div id="stream-summary" class="note stack" hidden></div>
+      <div id="cache-status" class="note stack" role="status" hidden></div>
       <div><div class="tabs" id="preview-tabs"></div><div class="terminal"><div class="terminal-top"><span id="terminal-title">POWERSHELL</span><button id="copy-preview" class="ghost small">${t('复制预览')}</button></div><pre id="command" tabindex="0" aria-label="${t('生成的命令或脚本')}"></pre></div></div>
       <div class="stack">
         <button id="copy-final" class="primary" disabled>${t('复制最终脚本 ↗')}</button>
@@ -87,6 +90,7 @@ function mountApp(): void {
   bindApp();
   renderNav();
   renderEditor();
+  renderCacheStatus();
 }
 
 function toast(message: string): void { const t = $('#toast'); t.textContent = message; t.className = 'toast'; t.hidden = false; setTimeout(() => { t.hidden = true; }, 3800); }
@@ -99,9 +103,33 @@ function pick(accept: string, callback: (file: File) => Promise<void>, multiple 
   input.onchange = async () => { for (const f of input.files || []) { try { await callback(f); } catch (error) { toast(error instanceof Error ? error.message : String(error)); } } };
   input.click();
 }
-function cached(): void {
-  try { localStorage.setItem(cacheKey, JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme })); }
-  catch { /* Export remains available when browser storage is blocked or full. */ }
+function workspaceText(): string {
+  return JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }, null, 2);
+}
+function downloadWorkspace(): void { save(workspaceText(), 'Forge-workspace.json', 'application/json'); }
+function renderCacheStatus(): void {
+  const panel = document.querySelector<HTMLElement>('#cache-status');
+  if (!panel) { return; }
+  panel.hidden = !cacheState;
+  panel.replaceChildren();
+  if (!cacheState) { return; }
+  if (cacheState === 'saved') { panel.append(el('small', '', t('已保存到浏览器'))); return; }
+  const reasons = { quota: '浏览器缓存容量不足。', blocked: '浏览器阻止了本地存储。', failed: '浏览器缓存写入失败。' };
+  panel.append(el('strong', '', t('当前修改尚未保存')), el('small', '', t(reasons[cacheState])),
+    button(t('下载工作区'), downloadWorkspace, 'small'));
+}
+function cached(): CacheState {
+  const previous = cacheState;
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }));
+    cacheState = 'saved';
+  } catch (cause) {
+    const name = cause instanceof Error ? cause.name : '';
+    cacheState = ['QuotaExceededError', 'NS_ERROR_DOM_QUOTA_REACHED'].includes(name) ? 'quota' :
+      name === 'SecurityError' ? 'blocked' : 'failed';
+  }
+  if (cacheState !== previous) { renderCacheStatus(); }
+  return cacheState;
 }
 function loadWorkspace(text: string): void {
   // Validate the whole document before replacing the current workspace.
@@ -114,7 +142,7 @@ function loadWorkspace(text: string): void {
 }
 try {
   const text = localStorage.getItem(cacheKey);
-  if (text) { loadWorkspace(text); }
+  if (text) { loadWorkspace(text); cacheState = 'saved'; }
 } catch { /* A damaged workspace cache must not prevent a fresh session. */ }
 try {
   const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]');
@@ -582,11 +610,12 @@ function openWorkspaceDialog(): void {
   const box = el('div', 'stack'); box.style.marginTop = '20px';
   const error = el('p', 'error-message'); error.setAttribute('role', 'alert'); error.hidden = true;
   box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')),
-    button(t('下载工作区'), () => save(JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }, null, 2), 'Forge-workspace.json', 'application/json')),
+    button(t('下载工作区'), downloadWorkspace),
     button(t('导入工作区'), () => pick('.json', async file => {
       try { loadWorkspace(await file.text()); }
       catch (cause) { error.textContent = cause instanceof Error ? cause.message : String(cause); error.hidden = false; return; }
-      schedule(); renderEditor(); renderNav(); dialog.close(); toast(t('工作区已恢复'));
+      schedule(); renderEditor(); renderNav(); dialog.close();
+      toast(cacheState === 'saved' ? t('工作区已恢复') : t('工作区已载入，缓存未保存，请下载工作区。'));
     })), error);
   body.append(box); dialog.showModal();
 }
