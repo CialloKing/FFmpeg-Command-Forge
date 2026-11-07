@@ -49,3 +49,6 @@ input,textarea{width:100%;border:1px solid var(--border);border-radius:6px;backg
 .issue-link { display:block; width:100%; text-align:left; font:inherit; cursor:pointer; }
 .issue-link:hover,.issue-link:focus-visible { border-color:var(--accent); }
 .issue-focus { outline:2px solid var(--accent); outline-offset:4px; }
+
+#task-page { width:5em; flex:none; }
+#input-tasks > .row { flex-wrap:wrap; }

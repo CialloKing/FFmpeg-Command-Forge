@@ -40,6 +40,8 @@ const presetFormat = `v${data.defaults.预设文件版本} JSON`;
 const presetHint = () => t('预设兼容基线 {0} · {1}', presetBaseline, presetFormat);
 type PreviewTab = 'commands' | 'stages' | 'graph' | 'args' | 'script';
 let previewTab: PreviewTab = 'commands';
+const taskPageSize = 50;
+let taskPage = 0;
 let selected = '任务与环境', query = '', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
 let cacheState: SaveState = { dirty: false };
 const persistence = createPersistence(cacheKey, workspaceSnapshot, state => {
@@ -130,7 +132,7 @@ function renderCacheStatus(): void {
     button(t('下载工作区'), downloadWorkspace, 'small'));
 }
 function loadWorkspace(text: string): void {
-  state.restore(text);
+  state.restore(text); taskPage = 0;
   document.documentElement.dataset.theme = state.theme;
 }
 try {
@@ -163,9 +165,10 @@ async function recompute(): Promise<void> {
     const plan = await buildPlan(state.doc, state.context, t, state.allowOverwrite); if (id !== generation) { return; }
     if (state.mappingErrors.length) { plan.status = 'incompatible'; plan.issues.push({ level: 'error', message: mappingErrorText(), target: contextTarget(['pathMappings']) }); }
     currentPlan = plan; currentRendered = renderPlan(plan, t); renderOutput();
-    for (const detail of document.querySelectorAll<HTMLElement>('[data-probe-index]')) {
-      const index = Number(detail.dataset.probeIndex);
-      renderProbeDetail(detail, associatedProbe(state.context.inputs[index], plan.probes[index].args.at(-1)!));
+    const tasks = new Map(state.context.inputs.map(task => [task.id, task]));
+    for (const detail of document.querySelectorAll<HTMLElement>('[data-probe-task]')) {
+      const task = tasks.get(detail.dataset.probeTask!);
+      renderProbeDetail(detail, task ? associatedProbe(task, resolvedInput(task, state.context)) : undefined);
     }
   } catch (error) {
     if (id !== generation) { return; }
@@ -187,6 +190,7 @@ function openPresetJson(): void {
 function focusIssue(target: IssueTarget): void {
   if (target.taskId && !state.context.inputs.some(task => task.id === target.taskId)) { toast(t('此问题对应的项目已变更，请查看最新诊断。')); return; }
   if (target.scope === 'preset' && !Object.hasOwn(schema.fields!, target.path[0])) { openPresetJson(); return; }
+  if (target.taskId) { taskPage = Math.floor(state.context.inputs.findIndex(task => task.id === target.taskId) / taskPageSize); }
   navigate(target.scope === 'preset' ? groupFor(String(target.path[0])) : '任务与环境');
   const targets = [...document.querySelectorAll<HTMLElement>('[data-issue-target]')];
   const node = targets.find(node => node.dataset.issueTarget === targetKey(target)) ??
@@ -211,6 +215,68 @@ function importTemplate(key: string): void {
     updateContext(current => { current.resources[path] = content; }); renderEditor(); toast(t('已导入模板：{0}', file.name));
   });
 }
+function refreshTaskCard(id: string): void {
+  const index = state.context.inputs.findIndex(task => task.id === id);
+  const block = [...document.querySelectorAll<HTMLElement>('[data-task-id]')].find(node => node.dataset.taskId === id);
+  if (block && index >= 0) { block.replaceWith(taskCard(state.context.inputs[index], index)); }
+}
+function refreshTaskList(): void { document.querySelector('#input-tasks')?.replaceWith(taskList()); }
+function taskList(): HTMLElement {
+  const list = el('div', 'stack'); list.id = 'input-tasks';
+  const count = state.context.inputs.length, pages = Math.max(1, Math.ceil(count / taskPageSize));
+  taskPage = Math.max(0, Math.min(taskPage, pages - 1));
+  const start = taskPage * taskPageSize, end = Math.min(count, start + taskPageSize);
+  if (pages > 1) {
+    const move = (page: number) => { taskPage = page; refreshTaskList(); document.querySelector<HTMLElement>('#task-page')?.focus(); };
+    const previous = button(t('上一页'), () => move(taskPage - 1), 'small ghost'); previous.disabled = taskPage === 0;
+    const next = button(t('下一页'), () => move(taskPage + 1), 'small ghost'); next.disabled = taskPage === pages - 1;
+    const page = el('input'); page.id = 'task-page'; page.type = 'number'; page.min = '1'; page.max = String(pages); page.value = String(taskPage + 1); page.setAttribute('aria-label', t('任务页码'));
+    page.onchange = () => { const value = Number(page.value); move(Number.isFinite(value) ? Math.trunc(value) - 1 : taskPage); };
+    page.onkeydown = event => { if (event.key === 'Enter') { page.blur(); } };
+    list.append(row(previous, page, el('span', 'muted', t('共 {0} 页 · 输入 {1}–{2} / {3}', pages, start + 1, end, count)), next));
+  }
+  for (let index = start; index < end; index++) { list.append(taskCard(state.context.inputs[index], index)); }
+  return list;
+}
+function taskCard(task: InputTask, index: number): HTMLElement {
+  const taskField = (key: string, label: string, node: HTMLElement, hint = '') => issueTarget(labeled(label, node, hint), contextTarget([key], task.id));
+  const block = issueTarget(el('div', 'input-task'), contextTarget([], task.id)), title = row(el('span', 'task-id', 'INPUT ' + String(index + 1).padStart(2, '0')), el('span', 'grow'), button(t('移除'), () => { updateContext(current => { current.inputs = current.inputs.filter(input => input.id !== task.id); }); refreshTaskList(); }, 'small ghost'));
+  block.dataset.taskId = task.id;
+  const pathInput = textInput(task.path, v => { updateTask(task.id, current => { current.path = v; current.probe = undefined; current.sidecarsConfirmed = false; }); }, t('输入媒体文件的真实路径')); pathInput.setAttribute('aria-label', t('输入文件 {0} 路径', index + 1));
+  pathInput.ondragover = e => e.preventDefault(); pathInput.ondrop = e => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f) { updateTask(task.id, current => { current.path = f.name; current.probe = undefined; current.sidecarsConfirmed = false; }); refreshTaskCard(task.id); toast(t('已取得文件名，请确认执行目录或补充真实路径')); } };
+  block.append(title, taskField('path', t('输入路径'), pathInput), taskField('output', t('指定输出文件（可选）'), textInput(task.output || '', v => { updateTask(task.id, current => { current.output = v; }); }), t('填写后覆盖本次自动命名')));
+  const actions = el('div', 'row wrap');
+  const probeReceiver = () => {
+    const binding = { path: task.path, resolvedPath: resolvedInput(task, state.context) };
+    return (text: string) => {
+      const probe: unknown = JSON.parse(text.replace(/^\uFEFF/, ''));
+      if (!isProbeData(probe)) { throw new Error(t('文件不是 ffprobe 的 JSON 输出')); }
+      const current = state.context.inputs.find(input => input.id === task.id);
+      if (!current || current.path !== binding.path || resolvedInput(current, state.context) !== binding.resolvedPath) { throw new Error(t('导入期间数据已变更或已有更新的导入，请重新选择文件。')); }
+      updateTask(task.id, current => { current.probe = { ...binding, data: probe }; }); refreshTaskCard(task.id);
+    };
+  };
+  actions.append(button(t('导入 ffprobe JSON'), () => { const apply = probeReceiver(); pick('.json', (_file, text) => apply(text)); }, 'small'), button(t('复制探测命令'), () => { const stage = currentPlan?.probes.find(s => s.taskId === task.id); if (stage) { void copy(renderCommand(stage, state.context.shell, false, t)); } }, 'small ghost'), button(t('粘贴探测结果'), () => {
+    const token = state.beginImport(), apply = probeReceiver();
+    openTextDialog(t('导入 ffprobe 结果'), '', text => { checkImport(token); apply(text); });
+  }, 'small ghost'));
+  block.append(issueTarget(actions, contextTarget(['probe'], task.id)));
+  const probeDetail = el('small'); probeDetail.dataset.probeTask = task.id;
+  renderProbeDetail(probeDetail, associatedProbe(task, resolvedInput(task, state.context)));
+  block.append(probeDetail);
+  const a = state.doc.normalized;
+  if (a.视频参数_烧录字幕_滤镜选择 && a.视频参数_烧录字幕_字幕来源是外部文件 === 1) {
+    const input = textInput(task.subtitle || '', v => { updateTask(task.id, current => { current.subtitle = v; }); }, t('实际字幕路径')); const candidates = subtitleCandidates(a, task.path.trim(), pathStyle(state.context.platform));
+    block.append(taskField('subtitle', t('本次烧录的外部字幕'), input, t('候选：{0}', candidates.join(' · '))));
+    const candidateButtons = el('div', 'row wrap'); candidates.forEach(p => candidateButtons.append(button(filename(p, pathStyle(state.context.platform)), () => { updateTask(task.id, current => { current.subtitle = p; }); refreshTaskCard(task.id); }, 'small'))); block.append(candidateButtons);
+  }
+  if (['SRT', 'ASS', 'SSA'].some(k => a['流控制_自动混流' + k])) {
+    const input = el('textarea', 'mono'); input.value = (task.sidecars || []).join('\n'); input.placeholder = t('每行一个已确认存在的同名字幕路径，可留空'); input.oninput = () => { updateTask(task.id, current => { current.sidecars = input.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean); current.sidecarsConfirmed = false; }); confirm.textContent = t('确认字幕清单（包括空清单）'); };
+    const confirm = button(task.sidecarsConfirmed ? t('✓ 已确认此字幕清单') : t('确认字幕清单（包括空清单）'), () => { updateTask(task.id, current => { current.sidecarsConfirmed = true; }); refreshTaskCard(task.id); }, 'small');
+    block.append(taskField('sidecars', t('同名字幕清单'), input), confirm);
+  }
+  return block;
+}
 function environment(): HTMLElement {
   const field = (key: string, label: string, node: HTMLElement, hint = '') => issueTarget(labeled(label, node, hint), contextTarget([key]));
   const content = el('div', 'stack');
@@ -225,44 +291,18 @@ function environment(): HTMLElement {
   card.append(grid, overwriteField);
   content.append(heading(t('执行环境'), '01'), card, heading(t('输入文件'), '02'));
   const note = el('p', 'note', t('粘贴实际路径，或使用“工作目录 + 相对文件名”。拖入文件只取得文件名，不会把浏览器的虚拟路径当作本机路径。')); content.append(note);
-  state.context.inputs.forEach((task, index) => {
-    const taskField = (key: string, label: string, node: HTMLElement, hint = '') => issueTarget(labeled(label, node, hint), contextTarget([key], task.id));
-    const block = issueTarget(el('div', 'input-task'), contextTarget([], task.id)), title = row(el('span', 'task-id', 'INPUT ' + String(index + 1).padStart(2, '0')), el('span', 'grow'), button(t('移除'), () => { updateContext(current => { current.inputs = current.inputs.filter(input => input.id !== task.id); }); renderEditor(); }, 'small ghost'));
-    const pathInput = textInput(task.path, v => { updateTask(task.id, current => { current.path = v; current.probe = undefined; current.sidecarsConfirmed = false; }); }, t('输入媒体文件的真实路径')); pathInput.setAttribute('aria-label', t('输入文件 {0} 路径', index + 1));
-    pathInput.ondragover = e => e.preventDefault(); pathInput.ondrop = e => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f) { updateTask(task.id, current => { current.path = f.name; current.probe = undefined; current.sidecarsConfirmed = false; }); renderEditor(); toast(t('已取得文件名，请确认执行目录或补充真实路径')); } };
-    block.append(title, taskField('path', t('输入路径'), pathInput), taskField('output', t('指定输出文件（可选）'), textInput(task.output || '', v => { updateTask(task.id, current => { current.output = v; }); }), t('填写后覆盖本次自动命名')));
-    const actions = el('div', 'row wrap');
-    const probeReceiver = () => {
-      const binding = { path: task.path, resolvedPath: resolvedInput(task, state.context) };
-      return (text: string) => {
-        const probe: unknown = JSON.parse(text.replace(/^\uFEFF/, ''));
-        if (!isProbeData(probe)) { throw new Error(t('文件不是 ffprobe 的 JSON 输出')); }
-        const current = state.context.inputs.find(input => input.id === task.id);
-        if (!current || current.path !== binding.path || resolvedInput(current, state.context) !== binding.resolvedPath) { throw new Error(t('导入期间数据已变更或已有更新的导入，请重新选择文件。')); }
-        updateTask(task.id, current => { current.probe = { ...binding, data: probe }; }); renderEditor();
-      };
-    };
-    actions.append(button(t('导入 ffprobe JSON'), () => { const apply = probeReceiver(); pick('.json', (_file, text) => apply(text)); }, 'small'), button(t('复制探测命令'), () => { const stage = currentPlan?.probes.find(s => s.taskId === task.id); if (stage) { void copy(renderCommand(stage, state.context.shell, false, t)); } }, 'small ghost'), button(t('粘贴探测结果'), () => {
-      const token = state.beginImport(), apply = probeReceiver();
-      openTextDialog(t('导入 ffprobe 结果'), '', text => { checkImport(token); apply(text); });
-    }, 'small ghost'));
-    block.append(issueTarget(actions, contextTarget(['probe'], task.id)));
-    const probeDetail = el('small'); probeDetail.dataset.probeIndex = String(index);
-    renderProbeDetail(probeDetail, associatedProbe(task, resolvedInput(task, state.context)));
-    block.append(probeDetail);
-    const a = state.doc.normalized;
-    if (a.视频参数_烧录字幕_滤镜选择 && a.视频参数_烧录字幕_字幕来源是外部文件 === 1) {
-      const input = textInput(task.subtitle || '', v => { updateTask(task.id, current => { current.subtitle = v; }); }, t('实际字幕路径')); const candidates = subtitleCandidates(a, task.path.trim(), pathStyle(state.context.platform));
-      block.append(taskField('subtitle', t('本次烧录的外部字幕'), input, t('候选：{0}', candidates.join(' · '))));
-      const candidateButtons = el('div', 'row wrap'); candidates.forEach(p => candidateButtons.append(button(filename(p, pathStyle(state.context.platform)), () => { updateTask(task.id, current => { current.subtitle = p; }); renderEditor(); }, 'small'))); block.append(candidateButtons);
-    }
-    if (['SRT', 'ASS', 'SSA'].some(k => a['流控制_自动混流' + k])) {
-      const input = el('textarea', 'mono'); input.value = (task.sidecars || []).join('\n'); input.placeholder = t('每行一个已确认存在的同名字幕路径，可留空'); input.oninput = () => { updateTask(task.id, current => { current.sidecars = input.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean); current.sidecarsConfirmed = false; }); };
-      block.append(taskField('sidecars', t('同名字幕清单'), input), button(task.sidecarsConfirmed ? t('✓ 已确认此字幕清单') : t('确认字幕清单（包括空清单）'), () => { updateTask(task.id, current => { current.sidecarsConfirmed = true; }); renderEditor(); }, 'small'));
-    }
-    content.append(block);
-  });
-  const addTasks = row(button(t('+ 添加输入'), () => { updateContext(current => { current.inputs.push({ id: crypto.randomUUID().replaceAll('-', ''), path: '' }); }); renderEditor(); }), button(t('批量粘贴路径'), () => openTextDialog(t('每行一个输入文件路径'), '', text => { updateContext(current => { for (const p of text.split(/\r?\n/).map(x => x.trim()).filter(Boolean)) { current.inputs.push({ id: crypto.randomUUID().replaceAll('-', ''), path: p.replace(/^"(.*)"$/, '$1') }); } if (current.inputs[0]?.path === '') { current.inputs.shift(); } }); renderEditor(); }), 'ghost')); content.append(issueTarget(addTasks, contextTarget(['inputs'])));
+  content.append(taskList());
+  const appendPaths = (paths: string[], replaceEmpty = false) => {
+    if (!paths.length) { return; }
+    let first = state.context.inputs.length;
+    updateContext(current => {
+      for (const path of paths) { current.inputs.push({ id: crypto.randomUUID().replaceAll('-', ''), path }); }
+      if (replaceEmpty && first > 0 && current.inputs[0]?.path === '') { current.inputs.shift(); first--; }
+    });
+    taskPage = Math.floor(first / taskPageSize); refreshTaskList();
+  };
+  const addTasks = row(button(t('+ 添加输入'), () => appendPaths([''])), button(t('批量粘贴路径'), () => openTextDialog(t('每行一个输入文件路径'), '', text => appendPaths(text.split(/\r?\n/).map(x => x.trim()).filter(Boolean).map(p => p.replace(/^"(.*)"$/, '$1')), true)), 'ghost'));
+  content.append(issueTarget(addTasks, contextTarget(['inputs'])));
   content.append(heading(t('预设路径与资源'), '03'));
   const mappingCard = el('div', 'card stack'), mappings = el('textarea', 'mono'); mappings.value = state.drafts.pathMappings; mappings.placeholder = t('例如 {0}', 'D:\\Media => /Volumes/Media');
   const mappingError = el('p', 'error-message'); mappingError.setAttribute('role', 'status');
@@ -468,7 +508,7 @@ function selectLanguage(preference: Locale | null): void {
   schedule(false);
 }
 function newWorkspace(): void {
-  state.reset(); navigate('任务与环境'); schedule('immediate'); toast(t('已创建新方案'));
+  state.reset(); taskPage = 0; navigate('任务与环境'); schedule('immediate'); toast(t('已创建新方案'));
 }
 
 function openWorkspaceDialog(): void {
