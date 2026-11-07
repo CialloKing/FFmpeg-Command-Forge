@@ -1,0 +1,30 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createEditorState } from '../src/editor-state';
+import { sourceText } from '../src/i18n';
+import { parseMappingDraft } from '../src/workspace';
+
+test('映射草稿完整应用，v1 迁移和 v2 恢复保留原文及最后有效映射', () => {
+  const state = createEditorState(() => sourceText);
+  state.editMappings('D:\\Media => /media\n');
+  const mappings = structuredClone(state.context.pathMappings);
+  state.editMappings('D:\\Media => /new\n\nunfinished\nsource => ');
+  assert.deepEqual(state.mappingErrors, [3, 4]);
+  assert.deepEqual(state.context.pathMappings, mappings);
+  const saved = JSON.stringify(state.snapshot());
+  state.reset(); state.restore(saved);
+  assert.deepEqual(state.context.pathMappings, mappings);
+  assert.equal(state.drafts.pathMappings, JSON.parse(saved).drafts.pathMappings);
+  assert.deepEqual(state.mappingErrors, [3, 4]);
+  const legacy: any = { ...state.snapshot(), version: 1 }; delete legacy.drafts;
+  state.restore(JSON.stringify(legacy));
+  assert.equal(state.drafts.pathMappings, 'D:\\Media => /media');
+  assert.equal(state.snapshot().version, 2);
+  const current = state.snapshot(); current.drafts = { pathMappings: 'D:\\Media => /new' };
+  state.restore(JSON.stringify(current));
+  assert.equal(state.context.pathMappings[0].to, '/new');
+  const before = JSON.stringify(state.snapshot());
+  assert.throws(() => state.restore(JSON.stringify({ ...current, drafts: { pathMappings: 42 } })));
+  assert.equal(JSON.stringify(state.snapshot()), before);
+  assert.deepEqual(parseMappingDraft(' \n a => b=>c\n'), { mappings: [{ from: 'a', to: 'b=>c' }], invalidLines: [] });
+});

@@ -1,6 +1,6 @@
 import { clone, importPreset } from './preset';
 import { defaultContext } from './plan';
-import { parseWorkspace } from './workspace';
+import { parseMappingDraft, parseWorkspace } from './workspace';
 import type { Translate } from './i18n';
 import type { ExecutionContext, FieldPath, InputTask, Preset } from './types';
 
@@ -8,6 +8,7 @@ import type { ExecutionContext, FieldPath, InputTask, Preset } from './types';
 export function createEditorState(translate: () => Translate) {
   const read = (input?: string | Preset) => importPreset(input, translate());
   let doc = read(), context = defaultContext(), theme = 'dark', allowOverwrite = false;
+  let drafts = { pathMappings: '' }, mappingErrors: number[] = [];
   function updatePreset(update: (raw: Preset) => void): void {
     const raw = clone(doc.raw); update(raw); doc = read(raw);
   }
@@ -16,6 +17,14 @@ export function createEditorState(translate: () => Translate) {
     get context() { return context; },
     get theme() { return theme; },
     get allowOverwrite() { return allowOverwrite; },
+    get drafts() { return drafts; },
+    get mappingErrors() { return mappingErrors; },
+    editMappings(text: string) {
+      drafts.pathMappings = text;
+      const parsed = parseMappingDraft(text); mappingErrors = parsed.invalidLines;
+      // 不完整的输入仍可保存，但不能部分应用路径变换。
+      if (!mappingErrors.length) { context.pathMappings = parsed.mappings; }
+    },
     updatePreset,
     replacePreset(input?: string | Preset) { doc = read(input); allowOverwrite = false; },
     editPreset(path: FieldPath, value: unknown) {
@@ -37,12 +46,13 @@ export function createEditorState(translate: () => Translate) {
     setTheme(value: string) { theme = value; },
     setOverwrite(value: boolean) { allowOverwrite = value; },
     localize() { doc = read(doc.raw); },
-    reset() { doc = read(); context = defaultContext(); allowOverwrite = false; },
+    reset() { doc = read(); context = defaultContext(); drafts = { pathMappings: '' }; mappingErrors = []; allowOverwrite = false; },
     restore(text: string) {
       // 完整验证成功后才替换工作区，失败时保留当前编辑内容。
       const workspace = parseWorkspace(JSON.parse(text.replace(/^\uFEFF/, '')), translate());
-      doc = workspace.doc; context = workspace.context; theme = workspace.theme; allowOverwrite = false;
+      doc = workspace.doc; context = workspace.context; theme = workspace.theme; drafts = workspace.drafts;
+      mappingErrors = parseMappingDraft(drafts.pathMappings).invalidLines; allowOverwrite = false;
     },
-    snapshot() { return { format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }; }
+    snapshot() { return { format: 'ffmpeg-command-forge/workspace', version: 2, preset: doc.raw, context, drafts, theme }; }
   };
 }

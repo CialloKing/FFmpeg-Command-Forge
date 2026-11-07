@@ -358,3 +358,5 @@ assert.deepEqual(errors, []);
 await storageContext.close();
 await browser.close();
 console.log(`${channel ? 'Edge' : 'Chromium'} 本地文件离线验收通过：中英文界面、覆盖授权、输出流、预设与工作区、脚本与 ZIP 下载、复制降级、参数搜索和移动布局。`);
+
+await import('./browser-editor-check.mjs');

@@ -6,6 +6,18 @@ type JsonObject = Record<string, unknown>;
 const object = (value: unknown): value is JsonObject => !!value && typeof value === 'object' && !Array.isArray(value);
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
 
+export function parseMappingDraft(text: string) {
+  const mappings: ExecutionContext['pathMappings'] = [], invalidLines: number[] = [];
+  text.split(/\r?\n/).forEach((line, index) => {
+    if (!line.trim()) { return; }
+    const separator = line.indexOf('=>');
+    const from = line.slice(0, separator).trim(), to = line.slice(separator + 2).trim();
+    if (separator < 0 || !from || !to) { invalidLines.push(index + 1); }
+    else { mappings.push({ from, to }); }
+  });
+  return { mappings, invalidLines };
+}
+
 export function isProbeData(value: unknown): value is ProbeData {
   if (!object(value) || value.format === undefined && value.streams === undefined) { return false; }
   if (value.streams !== undefined && !(Array.isArray(value.streams) && value.streams.every(object))) { return false; }
@@ -19,7 +31,7 @@ const platforms: readonly Platform[] = ['windows', 'linux', 'macos'];
 const shells: readonly Shell[] = ['powershell', 'powershell5', 'cmd', 'bash', 'zsh'];
 
 export function parseWorkspace(value: unknown, t: Translate) {
-  if (!object(value) || value.format !== 'ffmpeg-command-forge/workspace' || value.version !== 1) {
+  if (!object(value) || value.format !== 'ffmpeg-command-forge/workspace' || ![1, 2].includes(Number(value.version)) || typeof value.version !== 'number') {
     throw new Error(t('工作区格式无效或版本不支持'));
   }
   const invalid = (path: string): never => { throw new Error(t('工作区字段无效：{0}', path)); };
@@ -70,5 +82,9 @@ export function parseWorkspace(value: unknown, t: Translate) {
     confirmedPaths: strings(ctx.confirmedPaths) ? ctx.confirmedPaths : invalid('context.confirmedPaths')
   };
   const doc = importPreset(record(value.preset, 'preset'), t);
-  return { context, doc, theme: value.theme === 'light' ? 'light' : 'dark' };
+  const drafts = { pathMappings: value.version === 1 ? pathMappings.map(m => m.from + ' => ' + m.to).join('\n') :
+    string(record(value.drafts, 'drafts').pathMappings, 'drafts.pathMappings') };
+  const parsed = parseMappingDraft(drafts.pathMappings);
+  if (!parsed.invalidLines.length) { context.pathMappings = parsed.mappings; }
+  return { context, doc, drafts, theme: value.theme === 'light' ? 'light' : 'dark' };
 }

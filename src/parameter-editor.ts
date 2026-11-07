@@ -94,7 +94,7 @@ export function createParameterEditor(options: ParameterEditorOptions) {
       const choices = key === '视频参数_编码器_具体编码' ? Object.keys(data.video) : ['mp4', 'mkv', 'webm', 'mov', 'mp3', 'flac', 'wav', 'opus', 'png'];
       input = choiceInput(choices.map(choice => [choice, choice]), String(value ?? ''), v => edit(path, v), true);
     } else if (/自定义参数|自己写滤镜|进阶参数集/.test(key)) {
-      const area = el('textarea', 'mono'); area.value = value ?? ''; area.onchange = () => edit(path, area.value); input = area;
+      const area = el('textarea', 'mono'); area.value = value ?? ''; area.oninput = () => edit(path, area.value); input = area;
     } else {
       const text = textInput(String(value ?? ''), v => edit(path, spec.kind === 'number' ? Number(v || 0) : v));
       if (spec.kind === 'number') { text.type = 'number'; text.step = 'any'; }

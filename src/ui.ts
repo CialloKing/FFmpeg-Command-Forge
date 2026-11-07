@@ -119,7 +119,7 @@ function renderCacheStatus(): void {
   panel.hidden = !dirty && !result;
   panel.replaceChildren();
   if (!dirty && !result) { return; }
-  if (result === 'saved') { panel.append(el('small', '', t('已保存到浏览器'))); return; }
+  if (result === 'saved') { panel.append(el('small', '', state.mappingErrors.length ? t('草稿已保存，路径映射仍需修正') : t('已保存到浏览器'))); return; }
   if (!result) { panel.append(el('small', '', t('修改等待保存'))); return; }
   const reasons = { quota: '浏览器缓存容量不足。', blocked: '浏览器阻止了本地存储。', failed: '浏览器缓存写入失败。' };
   panel.append(el('strong', '', t('当前修改尚未保存')), el('small', '', t(reasons[result])),
@@ -131,7 +131,7 @@ function loadWorkspace(text: string): void {
 }
 try {
   const text = localStorage.getItem(cacheKey);
-  if (text) { loadWorkspace(text); persistence.restored(); }
+  if (text) { loadWorkspace(text); persistence.restored(); if (JSON.parse(text).version === 1) { persistence.schedule(); persistence.flush(); } }
 } catch { /* A damaged workspace cache must not prevent a fresh session. */ }
 try {
   const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]');
@@ -148,7 +148,7 @@ function updateTask(id: string, update: (task: InputTask) => void): void { if (s
 function schedule(save: 'deferred' | 'immediate' | false = 'deferred'): void {
   generation++; currentPlan = undefined; currentRendered = undefined;
   $('#stream-summary').hidden = true;
-  $('#copy-final').setAttribute('disabled', ''); $('#download-script').setAttribute('disabled', ''); $('#download-zip').setAttribute('disabled', '');
+  $('#copy-preview').setAttribute('disabled', ''); $('#copy-final').setAttribute('disabled', ''); $('#download-script').setAttribute('disabled', ''); $('#download-zip').setAttribute('disabled', '');
   $('#status-title').textContent = t('正在构建'); $('#status-caption').textContent = t('检查预设与执行环境');
   clearTimeout(timer); timer = setTimeout(recompute, 100);
   if (save) { persistence.schedule(); if (save === 'immediate') { persistence.flush(); } }
@@ -157,6 +157,7 @@ async function recompute(): Promise<void> {
   const id = ++generation;
   try {
     const plan = await buildPlan(state.doc, state.context, t, state.allowOverwrite); if (id !== generation) { return; }
+    if (state.mappingErrors.length) { plan.status = 'incompatible'; plan.issues.push({ level: 'error', message: mappingErrorText(), target: contextTarget(['pathMappings']) }); }
     currentPlan = plan; currentRendered = renderPlan(plan, t); renderOutput();
     for (const detail of document.querySelectorAll<HTMLElement>('[data-probe-index]')) {
       const index = Number(detail.dataset.probeIndex);
@@ -241,14 +242,18 @@ function environment(): HTMLElement {
       const candidateButtons = el('div', 'row wrap'); candidates.forEach(p => candidateButtons.append(button(filename(p, pathStyle(state.context.platform)), () => { updateTask(task.id, current => { current.subtitle = p; }); renderEditor(); }, 'small'))); block.append(candidateButtons);
     }
     if (['SRT', 'ASS', 'SSA'].some(k => a['流控制_自动混流' + k])) {
-      const input = el('textarea', 'mono'); input.value = (task.sidecars || []).join('\n'); input.placeholder = t('每行一个已确认存在的同名字幕路径，可留空'); input.onchange = () => { updateTask(task.id, current => { current.sidecars = input.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean); current.sidecarsConfirmed = false; }); };
+      const input = el('textarea', 'mono'); input.value = (task.sidecars || []).join('\n'); input.placeholder = t('每行一个已确认存在的同名字幕路径，可留空'); input.oninput = () => { updateTask(task.id, current => { current.sidecars = input.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean); current.sidecarsConfirmed = false; }); };
       block.append(taskField('sidecars', t('同名字幕清单'), input), button(task.sidecarsConfirmed ? t('✓ 已确认此字幕清单') : t('确认字幕清单（包括空清单）'), () => { updateTask(task.id, current => { current.sidecarsConfirmed = true; }); renderEditor(); }, 'small'));
     }
     content.append(block);
   });
   const addTasks = row(button(t('+ 添加输入'), () => { updateContext(current => { current.inputs.push({ id: crypto.randomUUID().replaceAll('-', ''), path: '' }); }); renderEditor(); }), button(t('批量粘贴路径'), () => openTextDialog(t('每行一个输入文件路径'), '', text => { updateContext(current => { for (const p of text.split(/\r?\n/).map(x => x.trim()).filter(Boolean)) { current.inputs.push({ id: crypto.randomUUID().replaceAll('-', ''), path: p.replace(/^"(.*)"$/, '$1') }); } if (current.inputs[0]?.path === '') { current.inputs.shift(); } }); renderEditor(); }), 'ghost')); content.append(issueTarget(addTasks, contextTarget(['inputs'])));
   content.append(heading(t('预设路径与资源'), '03'));
-  const mappingCard = el('div', 'card stack'), mappings = el('textarea', 'mono'); mappings.value = state.context.pathMappings.map(m => m.from + ' => ' + m.to).join('\n'); mappings.placeholder = t('例如 {0}', 'D:\\Media => /Volumes/Media'); mappings.onchange = () => { updateContext(current => { current.pathMappings = mappings.value.split(/\r?\n/).filter(x => x.includes('=>')).map(x => { const i = x.indexOf('=>'); return { from: x.slice(0, i).trim(), to: x.slice(i + 2).trim() }; }); }); };
+  const mappingCard = el('div', 'card stack'), mappings = el('textarea', 'mono'); mappings.value = state.drafts.pathMappings; mappings.placeholder = t('例如 {0}', 'D:\\Media => /Volumes/Media');
+  const mappingError = el('p', 'error-message'); mappingError.setAttribute('role', 'status');
+  const updateMappingError = () => { mappingError.hidden = !state.mappingErrors.length; mappingError.textContent = mappingErrorText(); mappings.setAttribute('aria-invalid', String(!!state.mappingErrors.length)); };
+  mappings.oninput = () => { state.editMappings(mappings.value); updateMappingError(); schedule(); renderCacheStatus(); };
+  updateMappingError(); mappingCard.append(mappingError);
   mappingCard.append(field('pathMappings', t('显式路径映射'), mappings, t('每行一条“原目录 => 目标目录”，只转换确认过的前缀。')));
   mappingCard.append(button(t('确认预设中的路径用于当前环境'), () => {
     const values: string[] = []; const visit = (o: Preset) => Object.entries(o).forEach(([k, v]) => { if (typeof v === 'string' && isPresetPathField(k)) { values.push(v); } else if (v && typeof v === 'object') { if (Array.isArray(v)) { v.filter(x => x && typeof x === 'object').forEach(visit); } else { visit(v); } } }); visit(state.doc.normalized); updateContext(current => { current.confirmedPaths = [...new Set([...current.confirmedPaths, ...values])]; }); toast(t('已确认当前预设中的资源路径'));
@@ -364,6 +369,8 @@ function previewText(plan: CommandPlan, rendered: RenderedPlan): string {
   return rendered[previewTab];
 }
 
+function mappingErrorText(): string { return t('路径映射第 {0} 行格式无效；预览仍使用上次有效映射，请修正后输出。', state.mappingErrors.join('、')); }
+function canOutput(): boolean { return !state.mappingErrors.length && currentPlan?.status === 'ready' && !!currentRendered && !currentRendered.issues.some(issue => issue.level === 'error'); }
 function renderOutput(): void {
   const plan = currentPlan!, rendered = currentRendered!, issues = [...plan.issues, ...rendered.issues], incompatible = issues.some(x => x.level === 'error'), ready = plan.status === 'ready' && !incompatible;
   $('#task-summary').textContent = t('{0} 个输入 · {1} 个执行阶段 · {2}', plan.tasks.length, plan.tasks.reduce((n, t) => n + t.stages.length, 0), t(labels[state.context.shell]));
@@ -378,7 +385,7 @@ function renderOutput(): void {
     $('#command').textContent = previewText(plan, rendered);
     const fallback = previewTab === 'script' && !rendered.copyable;
     $('#terminal-title').textContent = (ready ? '' : 'PREVIEW · ') + (fallback ? 'POWERSHELL 5.1' : t(labels[state.context.shell]).toUpperCase());
-    $<HTMLButtonElement>('#copy-preview').disabled = fallback;
+    $<HTMLButtonElement>('#copy-preview').disabled = fallback || !!state.mappingErrors.length;
   };
   const labelsByTab: [PreviewTab, string][] = [['commands', t('命令')], ['stages', t('阶段')], ['graph', t('滤镜图')], ['args', t('参数')], ['script', t('完整脚本')]];
   for (const [id, name] of labelsByTab) {
@@ -483,11 +490,11 @@ function bindApp(): void {
   $('#import').onclick = () => pick('.json', async f => { replacePreset(await f.text()); state.updateContext(current => { current.confirmedPaths = []; }); schedule('immediate'); renderEditor(); toast(t('已导入：{0}', f.name)); });
   $('#export').onclick = () => save(exportPreset(state.doc), 'FFmpegFreeUI-v6.json', 'application/json');
   $('#theme').onclick = () => { state.setTheme(state.theme === 'dark' ? 'light' : 'dark'); document.documentElement.dataset.theme = state.theme; persistence.schedule(); };
-  $('#copy-preview').onclick = () => { const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (state.context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };
-  $('#copy-final').onclick = () => { if (currentRendered?.copyable) { void copy(currentRendered.script); } };
-  $('#download-script').onclick = () => { if (currentRendered) { const { content, name } = currentRendered.download; save(content, name, 'text/plain;charset=utf-8'); } };
+  $('#copy-preview').onclick = () => { if (state.mappingErrors.length) { return; } const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (state.context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };
+  $('#copy-final').onclick = () => { if (canOutput() && currentRendered?.copyable) { void copy(currentRendered.script); } };
+  $('#download-script').onclick = () => { if (canOutput() && currentRendered) { const { content, name } = currentRendered.download; save(content, name, 'text/plain;charset=utf-8'); } };
   $('#download-zip').onclick = () => {
-    if (!currentPlan || !currentRendered) { return; }
+    if (!canOutput() || !currentPlan || !currentRendered) { return; }
     const files: Record<string, Uint8Array> = { 'preset-v6.json': strToU8(exportPreset(state.doc)), 'README.txt': strToU8(['FFmpeg Command Forge', t('终端：{0}', t(labels[state.context.shell])), t('先检查脚本，然后在所选终端运行。输入媒体不包含在任务包内。'), ...(state.context.shell === 'cmd' ? [t('解压整个任务包后运行 forge-task.cmd。启动器需要同目录的 forge-task.ps1。')] : []), t('模板副本位于 resources，完整脚本会准备所需的临时文件。'), '', ''].join('\n') + currentPlan.tasks.map(t => `${t.input}\n=> ${t.output}`).join('\n\n')) };
     for (const { name, content } of currentRendered.bundleScripts) { files[name] = strToU8(content); }
     currentRendered.assets.forEach((asset, i) => { files['resources/' + String(i + 1).padStart(3, '0') + '-' + filename(asset.path, pathStyle(state.context.platform)).replaceAll('\\', '_')] = strToU8(asset.content); });
