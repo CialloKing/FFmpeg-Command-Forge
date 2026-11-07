@@ -153,6 +153,7 @@ function edit(path: (string | number)[], value: any): void {
   path.slice(0, -1).forEach((key, i) => { if (!target[key]) { target[key] = typeof path[i + 1] === 'number' ? [] : {}; } target = target[key]; });
   target[path.at(-1)!] = value; doc = readPreset(raw); schedule();
 }
+const currentValue = (path: (string | number)[]) => path.reduce<any>((value, key) => value?.[key], doc.raw);
 function schedule(): void {
   generation++; currentPlan = undefined; currentRendered = undefined;
   $('#stream-summary').hidden = true;
@@ -303,23 +304,31 @@ function parameterField(key: string, spec: Schema, value: any, path: (string | n
   const label = parameterLabel(locale, key);
   const hint = path.length === 1 ? fieldHint(key) || (locale === 'zh-CN' ? key : '') : '';
   if (spec.kind === 'object' || spec.kind === 'array') {
+    const wrapper = el('div', 'field wide');
     const details = el('details', 'nested'); const summary = el('summary', '', label + (spec.kind === 'array' ? t(' · {0} 项', (value || []).length) : '')); details.append(summary);
     if (spec.kind === 'object') {
       const fields = el('div', 'parameter-fields'); for (const [k, s] of Object.entries(spec.fields!)) { fields.append(parameterField(k, s, value?.[k] ?? blankValue(s), [...path, k])); } details.append(fields);
     } else {
       const list = el('div'); const values: any[] = value || [];
-      const rerender = () => { const replacement = parameterField(key, spec, values, path); (replacement as HTMLDetailsElement).open = true; details.replaceWith(replacement); };
+      // 字段编辑会替换预设对象；结构操作必须读取最新数组，不能写回渲染时的快照。
+      const change = (update: (items: any[]) => void) => {
+        const items = clone(currentValue(path) ?? []);
+        update(items); edit(path, items);
+        const replacement = parameterField(key, spec, currentValue(path), path);
+        replacement.querySelector('details')!.open = details.open;
+        wrapper.replaceWith(replacement);
+      };
       values.forEach((v, i) => {
         const item = el('div', 'array-item');
         if (spec.items!.kind === 'object') { for (const [k, s] of Object.entries(spec.items!.fields!)) { item.append(parameterField(k, s, v?.[k] ?? blankValue(s), [...path, i, k])); } }
         else { item.append(parameterField(t('第 {0} 项', i + 1), spec.items!, v, [...path, i])); }
         const actions = el('div', 'array-actions');
-        const move = (delta: number) => { if (i + delta < 0 || i + delta >= values.length) { return; } [values[i], values[i + delta]] = [values[i + delta], values[i]]; edit(path, values); rerender(); };
-        actions.append(button('↑', () => move(-1), 'small'), button('↓', () => move(1), 'small'), button(t('删除'), () => { values.splice(i, 1); edit(path, values); rerender(); }, 'small danger')); item.append(actions); list.append(item);
+        const move = (delta: number) => change(items => { if (i + delta < 0 || i + delta >= items.length) { return; } [items[i], items[i + delta]] = [items[i + delta], items[i]]; });
+        actions.append(button('↑', () => move(-1), 'small'), button('↓', () => move(1), 'small'), button(t('删除'), () => change(items => { items.splice(i, 1); }), 'small danger')); item.append(actions); list.append(item);
       });
-      details.append(list, button(t('+ 添加一项'), () => { values.push(blankValue(spec.items!)); edit(path, values); rerender(); }, 'small'));
+      details.append(list, button(t('+ 添加一项'), () => change(items => { items.push(blankValue(spec.items!)); }), 'small'));
     }
-    const wrapper = el('div', 'field wide'); wrapper.append(details); return wrapper;
+    wrapper.append(details); return wrapper;
   }
   if (spec.kind === 'boolean') {
     const input = el('input'); input.type = 'checkbox'; input.checked = !!value; input.onchange = () => edit(path, input.checked); const field = labeled(label, input); field.className = 'field boolean'; field.prepend(input); return field;
@@ -358,6 +367,11 @@ function filterOrder(): HTMLElement {
   order.forEach((item, i) => {
     const line = el('div', 'filter-item'); const detail = el('div', 'grow'); const name = item.显示名称 ? (item.是自定义滤镜 && !String(item.实例ID).startsWith('legacy-') ? item.显示名称 : optionLabel(locale, item.显示名称)) : t('自定义滤镜'); detail.append(el('div', '', name), el('div', 'filter-detail mono', item.自定义滤镜内容));
     const move = (delta: number) => {
+      const latest = clone(doc.normalized); normalizeOrder(latest);
+      const order: Preset[] = latest.滤镜排序系统;
+      const currentIndex = order.findIndex(filter => filter.实例ID === item.实例ID);
+      if (currentIndex < 0) { renderEditor(); return; }
+      const i = currentIndex;
       if (!order[i + delta] || order[i + delta].滤镜目标流类型 !== item.滤镜目标流类型) { return; }
       [order[i], order[i + delta]] = [order[i + delta], order[i]];
       const remaining = [...(doc.raw.滤镜排序系统 || [])];
