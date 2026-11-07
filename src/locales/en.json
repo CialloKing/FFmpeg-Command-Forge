@@ -276,5 +276,10 @@
   "上一页": "Previous",
   "下一页": "Next",
   "任务页码": "Task page",
-  "共 {0} 页 · 输入 {1}–{2} / {3}": "{0} pages · Inputs {1}–{2} of {3}"
+  "共 {0} 页 · 输入 {1}–{2} / {3}": "{0} pages · Inputs {1}–{2} of {3}",
+  "撤销": "Undo",
+  "撤销：{0}": "Undo: {0}",
+  "替换预设": "Replace preset",
+  "删除输入任务": "Remove input",
+  "已撤销，覆盖输出授权已关闭": "Undone; output overwrite permission is disabled"
 }

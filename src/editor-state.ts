@@ -10,7 +10,13 @@ export function createEditorState(translate: () => Translate) {
   let doc = read(), context = defaultContext(), theme = 'dark', allowOverwrite = false;
   let drafts = { pathMappings: '' }, mappingErrors: number[] = [];
   let revision = 0, importSequence = 0;
-  const changed = () => { revision++; };
+  const checkpoint = () => clone({ preset: doc.raw, context, drafts });
+  let undoEntry: { label: string; before: ReturnType<typeof checkpoint> } | undefined;
+  const changed = () => { revision++; undoEntry = undefined; };
+  function restoreCheckpoint(before: ReturnType<typeof checkpoint>): void {
+    doc = read(before.preset); context = before.context; drafts = before.drafts;
+    mappingErrors = parseMappingDraft(drafts.pathMappings).invalidLines;
+  }
   function updatePreset(update: (raw: Preset) => void): void {
     const raw = clone(doc.raw); update(raw); doc = read(raw); changed();
   }
@@ -21,6 +27,21 @@ export function createEditorState(translate: () => Translate) {
     get allowOverwrite() { return allowOverwrite; },
     get drafts() { return drafts; },
     get mappingErrors() { return mappingErrors; },
+    get undoLabel() { return undoEntry?.label; },
+    perform(label: string, action: () => void) {
+      const before = checkpoint(), previous = undoEntry, previousRevision = revision, previousTheme = theme, previousOverwrite = allowOverwrite;
+      try { action(); undoEntry = { label, before }; }
+      catch (cause) {
+        // 失败操作不能破坏数据、已有撤销记录或仍有效的导入令牌。
+        if (revision !== previousRevision) { restoreCheckpoint(before); }
+        undoEntry = previous; revision = previousRevision; theme = previousTheme; allowOverwrite = previousOverwrite;
+        throw cause;
+      }
+    },
+    undo(): boolean {
+      if (!undoEntry) { return false; }
+      restoreCheckpoint(undoEntry.before); allowOverwrite = false; changed(); return true;
+    },
     beginImport() { return { revision, sequence: ++importSequence }; },
     acceptsImport(token: { revision: number; sequence: number }) { return token.revision === revision && token.sequence === importSequence; },
     editMappings(text: string) {

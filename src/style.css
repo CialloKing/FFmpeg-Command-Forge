@@ -52,3 +52,6 @@ input,textarea{width:100%;border:1px solid var(--border);border-radius:6px;backg
 
 #task-page { width:5em; flex:none; }
 #input-tasks > .row { flex-wrap:wrap; }
+
+.header { height:auto; min-height:76px; padding-block:12px; gap:12px; flex-wrap:wrap; }
+.toolbar { flex-wrap:wrap; justify-content:flex-end; }

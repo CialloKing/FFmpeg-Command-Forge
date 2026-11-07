@@ -48,8 +48,13 @@ const persistence = createPersistence(cacheKey, workspaceSnapshot, state => {
   if (state.dirty !== cacheState.dirty || state.result !== cacheState.result) { cacheState = state; renderCacheStatus(); }
 });
 let library: { name: string; preset: Preset }[] = [];
-function replacePreset(input?: string | Preset): void {
-  state.replacePreset(input);
+function critical(label: string, action: () => void): void { state.perform(label, action); renderUndo(); }
+function replacePreset(input?: string | Preset, after?: () => void): void {
+  critical('替换预设', () => { state.replacePreset(input); after?.(); });
+}
+function renderUndo(): void {
+  const button = document.querySelector<HTMLButtonElement>('#undo');
+  if (button) { button.disabled = !state.undoLabel; button.textContent = state.undoLabel ? t('撤销：{0}', t(state.undoLabel)) : t('撤销'); }
 }
 function mountApp(): void {
   document.documentElement.lang = locale;
@@ -58,6 +63,7 @@ function mountApp(): void {
   <header class="header">
     <div class="brand"><div class="brandmark" aria-hidden="true">⌘</div><div><div class="brand-name">FFmpeg Command Forge</div><div class="brand-subtitle">BUILD THE COMMAND. OWN THE FRAME.</div></div></div>
     <div class="toolbar">
+      <button id="undo" class="ghost" disabled>${t('撤销')}</button>
       <button id="new" class="ghost optional">${t('新建方案')}</button>
       <button id="import" title="${presetHint()}">${t('导入预设')}</button>
       <button id="export" title="${presetHint()}">${t('导出预设')}</button>
@@ -131,8 +137,9 @@ function renderCacheStatus(): void {
   panel.append(el('strong', '', t('当前修改尚未保存')), el('small', '', t(reasons[result])),
     button(t('下载工作区'), downloadWorkspace, 'small'));
 }
-function loadWorkspace(text: string): void {
-  state.restore(text); taskPage = 0;
+function loadWorkspace(text: string, undoable = false): void {
+  if (undoable) { critical('导入工作区', () => state.restore(text)); } else { state.restore(text); }
+  taskPage = 0;
   document.documentElement.dataset.theme = state.theme;
 }
 try {
@@ -152,6 +159,7 @@ function updateContext(update: (context: ExecutionContext) => void): void { stat
 function updateTask(id: string, update: (task: InputTask) => void): void { if (state.updateTask(id, update)) { schedule(); } }
 
 function schedule(save: 'deferred' | 'immediate' | false = 'deferred'): void {
+  renderUndo();
   generation++; currentPlan = undefined; currentRendered = undefined;
   $('#stream-summary').hidden = true;
   $('#copy-preview').setAttribute('disabled', ''); $('#copy-final').setAttribute('disabled', ''); $('#download-script').setAttribute('disabled', ''); $('#download-zip').setAttribute('disabled', '');
@@ -240,7 +248,7 @@ function taskList(): HTMLElement {
 }
 function taskCard(task: InputTask, index: number): HTMLElement {
   const taskField = (key: string, label: string, node: HTMLElement, hint = '') => issueTarget(labeled(label, node, hint), contextTarget([key], task.id));
-  const block = issueTarget(el('div', 'input-task'), contextTarget([], task.id)), title = row(el('span', 'task-id', 'INPUT ' + String(index + 1).padStart(2, '0')), el('span', 'grow'), button(t('移除'), () => { updateContext(current => { current.inputs = current.inputs.filter(input => input.id !== task.id); }); refreshTaskList(); }, 'small ghost'));
+  const block = issueTarget(el('div', 'input-task'), contextTarget([], task.id)), title = row(el('span', 'task-id', 'INPUT ' + String(index + 1).padStart(2, '0')), el('span', 'grow'), button(t('移除'), () => { critical('删除输入任务', () => state.updateContext(current => { current.inputs = current.inputs.filter(input => input.id !== task.id); })); schedule(); refreshTaskList(); }, 'small ghost'));
   block.dataset.taskId = task.id;
   const pathInput = textInput(task.path, v => { updateTask(task.id, current => { current.path = v; current.probe = undefined; current.sidecarsConfirmed = false; }); }, t('输入媒体文件的真实路径')); pathInput.setAttribute('aria-label', t('输入文件 {0} 路径', index + 1));
   pathInput.ondragover = e => e.preventDefault(); pathInput.ondrop = e => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f) { updateTask(task.id, current => { current.path = f.name; current.probe = undefined; current.sidecarsConfirmed = false; }); refreshTaskCard(task.id); toast(t('已取得文件名，请确认执行目录或补充真实路径')); } };
@@ -508,7 +516,7 @@ function selectLanguage(preference: Locale | null): void {
   schedule(false);
 }
 function newWorkspace(): void {
-  state.reset(); taskPage = 0; navigate('任务与环境'); schedule('immediate'); toast(t('已创建新方案'));
+  critical('新建方案', () => state.reset()); taskPage = 0; navigate('任务与环境'); schedule('immediate'); toast(t('已创建新方案'));
 }
 
 function openWorkspaceDialog(): void {
@@ -518,7 +526,7 @@ function openWorkspaceDialog(): void {
   box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')),
     button(t('下载工作区'), downloadWorkspace),
     button(t('导入工作区'), () => pick('.json', (_file, text) => {
-      try { loadWorkspace(text); }
+      try { loadWorkspace(text, true); }
       catch (cause) { error.textContent = cause instanceof Error ? cause.message : String(cause); error.hidden = false; return; }
       schedule('immediate'); renderEditor(); renderNav(); dialog.close();
       toast(cacheState.result === 'saved' ? t('工作区已恢复') : t('工作区已载入，缓存未保存，请下载工作区。'));
@@ -537,12 +545,17 @@ function openMoreDialog(): void {
 }
 
 function bindApp(): void {
+  renderUndo();
+  $('#undo').onclick = () => {
+    if (!state.undo()) { return; }
+    renderEditor(); renderNav(); schedule('immediate'); toast(t('已撤销，覆盖输出授权已关闭'));
+  };
   $('#language').onclick = openLanguageDialog;
   $('#dialog-close').onclick = () => $<HTMLDialogElement>('#dialog').close();
   $('#new').onclick = newWorkspace;
   $('#workspace').onclick = openWorkspaceDialog;
   $('#more').onclick = openMoreDialog;
-  $('#import').onclick = () => pick('.json', (f, text) => { replacePreset(text); state.updateContext(current => { current.confirmedPaths = []; }); schedule('immediate'); renderEditor(); toast(t('已导入：{0}', f.name)); });
+  $('#import').onclick = () => pick('.json', (f, text) => { replacePreset(text, () => state.updateContext(current => { current.confirmedPaths = []; })); schedule('immediate'); renderEditor(); toast(t('已导入：{0}', f.name)); });
   $('#export').onclick = () => save(exportPreset(state.doc), 'FFmpegFreeUI-v6.json', 'application/json');
   $('#theme').onclick = () => { state.setTheme(state.theme === 'dark' ? 'light' : 'dark'); document.documentElement.dataset.theme = state.theme; persistence.schedule(); };
   $('#copy-preview').onclick = () => { if (state.mappingErrors.length) { return; } const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (state.context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };

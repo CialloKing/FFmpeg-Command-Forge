@@ -55,3 +55,28 @@ test('导入令牌拒绝旧请求和业务修改，界面设置及失败解析�
   const next = state.beginImport(); state.reset();
   assert.equal(state.acceptsImport(next), false);
 });
+
+
+test('关键操作撤销恢复业务状态，后续修改使其失效，失败操作保留历史', () => {
+  const state = createEditorState(() => sourceText);
+  state.editMappings('unfinished');
+  state.updateContext(current => { current.resources['template'] = 'content'; current.inputs[0].probe = { path: '', data: { streams: [] } }; });
+  state.setOverwrite(true);
+  const before = structuredClone(state.snapshot());
+  state.perform('reset', () => state.reset());
+  const token = state.beginImport();
+  state.setTheme('light'); state.localize();
+  assert.throws(() => state.perform('bad', () => state.restore('{}')));
+  assert.equal(state.undoLabel, 'reset');
+  assert.equal(state.undo(), true);
+  assert.equal(state.acceptsImport(token), false);
+  assert.equal(state.allowOverwrite, false);
+  assert.deepEqual(state.snapshot(), { ...before, theme: 'light' });
+  assert.equal(state.undo(), false);
+  state.perform('preset', () => state.replacePreset({ 预设文件版本: 6 }));
+  state.editPreset(['输出容器'], 'mkv');
+  assert.equal(state.undo(), false);
+  state.perform('reset', () => state.reset());
+  const restored = createEditorState(() => sourceText); restored.restore(JSON.stringify(state.snapshot()));
+  assert.equal(restored.undo(), false);
+});
