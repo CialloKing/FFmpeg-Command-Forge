@@ -54,6 +54,23 @@ try {
   assert.equal(await page.getByLabel('值', { exact: true }).inputValue(), 'kept');
   assert.equal(await page.getByText('空项，不参与命令生成。', { exact: true }).isVisible(), true);
   assert.deepEqual((await saved()).preset, preset);
+  await page.getByRole('button', { name: '任务与环境', exact: true }).click();
+  await page.evaluate(() => {
+    const original = File.prototype.text;
+    File.prototype.text = async function () {
+      if (this.name === 'delayed.json') { window.readStarted = true; await new Promise(resolve => { window.releaseRead = resolve; }); }
+      return original.call(this);
+    };
+  });
+  await upload(page.getByRole('button', { name: '导入 ffprobe JSON', exact: true }), { format: { duration: '10' }, streams: [] }, 'delayed.json');
+  await page.waitForFunction(() => window.readStarted);
+  await page.getByLabel('输入文件 1 路径', { exact: true }).fill('D:\\Media\\changed.mp4');
+  await page.evaluate(() => window.releaseRead());
+  await page.getByText('导入期间数据已变更或已有更新的导入，请重新选择文件。', { exact: true }).waitFor();
+  await page.getByText('已保存到浏览器', { exact: true }).waitFor();
+  assert.equal((await saved()).context.inputs[0].probe, undefined);
+  await upload(page.getByRole('button', { name: '导入 ffprobe JSON', exact: true }), { format: { duration: '20' }, streams: [] });
+  await page.getByText(/已关联此路径.*20/).waitFor();
   assert.deepEqual(errors, []);
   console.log(`${channel ?? 'Chromium'} 第二轮编辑器回归通过`);
 } finally { await browser.close(); }

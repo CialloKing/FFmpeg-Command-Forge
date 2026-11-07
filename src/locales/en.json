@@ -271,5 +271,6 @@
   "模板副本位于 resources，完整脚本会准备所需的临时文件。": "Template copies are in resources. The full script prepares any temporary files it needs.",
   "草稿已保存，路径映射仍需修正": "Draft saved; path mappings still need correction",
   "路径映射第 {0} 行格式无效；预览仍使用上次有效映射，请修正后输出。": "Invalid path mapping on line(s) {0}. Preview uses the last valid mappings; fix the draft before exporting.",
-  "空项，不参与命令生成。": "Empty item; ignored when generating commands."
+  "空项，不参与命令生成。": "Empty item; ignored when generating commands.",
+  "导入期间数据已变更或已有更新的导入，请重新选择文件。": "Data changed during import or a newer import was started. Please select the file again."
 }

@@ -40,3 +40,18 @@ test('有效值按原始数组索引读取，保留预设原文', async () => {
   assert.equal(effectiveValue(doc, ['元数据_要写入的信息', 1, '值']), 'kept');
   assert.deepEqual(JSON.parse(exportPreset(doc)), raw);
 });
+
+
+test('导入令牌拒绝旧请求和业务修改，界面设置及失败解析不使其失效', () => {
+  const state = createEditorState(() => sourceText);
+  const first = state.beginImport(), latest = state.beginImport();
+  assert.equal(state.acceptsImport(first), false);
+  state.setTheme('light'); state.localize();
+  assert.throws(() => state.restore('{}'));
+  assert.throws(() => state.replacePreset('[]'));
+  assert.equal(state.acceptsImport(latest), true);
+  state.updateTask(state.context.inputs[0].id, task => { task.path = 'B'; });
+  assert.equal(state.acceptsImport(latest), false);
+  const next = state.beginImport(); state.reset();
+  assert.equal(state.acceptsImport(next), false);
+});

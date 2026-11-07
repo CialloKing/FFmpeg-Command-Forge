@@ -104,9 +104,13 @@ function save(content: string | Uint8Array, name: string, type = 'application/oc
   const part = typeof content === 'string' ? content : new Uint8Array(content).buffer;
   const url = URL.createObjectURL(new Blob([part], { type })); const link = el('a'); link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
-function pick(accept: string, callback: (file: File) => Promise<void>, multiple = false): void {
-  const input = el('input'); input.type = 'file'; input.accept = accept; input.multiple = multiple;
-  input.onchange = async () => { for (const f of input.files || []) { try { await callback(f); } catch (error) { toast(error instanceof Error ? error.message : String(error)); } } };
+function checkImport(token: ReturnType<typeof state.beginImport>): void {
+  if (!state.acceptsImport(token)) { throw new Error(t('导入期间数据已变更或已有更新的导入，请重新选择文件。')); }
+}
+function pick(accept: string, callback: (file: File, text: string) => void | Promise<void>): void {
+  const token = state.beginImport();
+  const input = el('input'); input.type = 'file'; input.accept = accept;
+  input.onchange = async () => { for (const f of input.files || []) { try { const text = await f.text(); checkImport(token); await callback(f, text); } catch (error) { toast(error instanceof Error ? error.message : String(error)); } } };
   input.click();
 }
 function workspaceSnapshot() { return state.snapshot(); }
@@ -201,8 +205,7 @@ function renderProbeDetail(detail: HTMLElement, probe: ReturnType<typeof associa
   detail.textContent = probe ? t('已关联此路径 · {0} 个流 · 时长 {1} 秒', probe.streams?.length ?? 0, probe.format?.duration ?? t('未知')) : '';
 }
 function importTemplate(key: string): void {
-  pick('.avs,.vpy,.py,.txt', async file => {
-    const content = await file.text();
+  pick('.avs,.vpy,.py,.txt', (file, content) => {
     const path = String(state.doc.normalized[key] || file.name);
     if (!state.doc.normalized[key]) { edit([key], file.name); }
     updateContext(current => { current.resources[path] = content; }); renderEditor(); toast(t('已导入模板：{0}', file.name));
@@ -229,8 +232,20 @@ function environment(): HTMLElement {
     pathInput.ondragover = e => e.preventDefault(); pathInput.ondrop = e => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f) { updateTask(task.id, current => { current.path = f.name; current.probe = undefined; current.sidecarsConfirmed = false; }); renderEditor(); toast(t('已取得文件名，请确认执行目录或补充真实路径')); } };
     block.append(title, taskField('path', t('输入路径'), pathInput), taskField('output', t('指定输出文件（可选）'), textInput(task.output || '', v => { updateTask(task.id, current => { current.output = v; }); }), t('填写后覆盖本次自动命名')));
     const actions = el('div', 'row wrap');
-    const applyProbe = (text: string) => { const probe: unknown = JSON.parse(text.replace(/^\uFEFF/, '')); if (!isProbeData(probe)) { throw new Error(t('文件不是 ffprobe 的 JSON 输出')); } updateTask(task.id, current => { current.probe = { path: current.path, resolvedPath: resolvedInput(current, state.context), data: probe }; }); renderEditor(); };
-    actions.append(button(t('导入 ffprobe JSON'), () => pick('.json', async f => applyProbe(await f.text())), 'small'), button(t('复制探测命令'), () => { const stage = currentPlan?.probes.find(s => s.taskId === task.id); if (stage) { void copy(renderCommand(stage, state.context.shell, false, t)); } }, 'small ghost'), button(t('粘贴探测结果'), () => openTextDialog(t('导入 ffprobe 结果'), '', text => applyProbe(text)), 'small ghost'));
+    const probeReceiver = () => {
+      const binding = { path: task.path, resolvedPath: resolvedInput(task, state.context) };
+      return (text: string) => {
+        const probe: unknown = JSON.parse(text.replace(/^\uFEFF/, ''));
+        if (!isProbeData(probe)) { throw new Error(t('文件不是 ffprobe 的 JSON 输出')); }
+        const current = state.context.inputs.find(input => input.id === task.id);
+        if (!current || current.path !== binding.path || resolvedInput(current, state.context) !== binding.resolvedPath) { throw new Error(t('导入期间数据已变更或已有更新的导入，请重新选择文件。')); }
+        updateTask(task.id, current => { current.probe = { ...binding, data: probe }; }); renderEditor();
+      };
+    };
+    actions.append(button(t('导入 ffprobe JSON'), () => { const apply = probeReceiver(); pick('.json', (_file, text) => apply(text)); }, 'small'), button(t('复制探测命令'), () => { const stage = currentPlan?.probes.find(s => s.taskId === task.id); if (stage) { void copy(renderCommand(stage, state.context.shell, false, t)); } }, 'small ghost'), button(t('粘贴探测结果'), () => {
+      const token = state.beginImport(), apply = probeReceiver();
+      openTextDialog(t('导入 ffprobe 结果'), '', text => { checkImport(token); apply(text); });
+    }, 'small ghost'));
     block.append(issueTarget(actions, contextTarget(['probe'], task.id)));
     const probeDetail = el('small'); probeDetail.dataset.probeIndex = String(index);
     renderProbeDetail(probeDetail, associatedProbe(task, resolvedInput(task, state.context)));
@@ -462,8 +477,8 @@ function openWorkspaceDialog(): void {
   const error = el('p', 'error-message'); error.setAttribute('role', 'alert'); error.hidden = true;
   box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')),
     button(t('下载工作区'), downloadWorkspace),
-    button(t('导入工作区'), () => pick('.json', async file => {
-      try { loadWorkspace(await file.text()); }
+    button(t('导入工作区'), () => pick('.json', (_file, text) => {
+      try { loadWorkspace(text); }
       catch (cause) { error.textContent = cause instanceof Error ? cause.message : String(cause); error.hidden = false; return; }
       schedule('immediate'); renderEditor(); renderNav(); dialog.close();
       toast(cacheState.result === 'saved' ? t('工作区已恢复') : t('工作区已载入，缓存未保存，请下载工作区。'));
@@ -487,7 +502,7 @@ function bindApp(): void {
   $('#new').onclick = newWorkspace;
   $('#workspace').onclick = openWorkspaceDialog;
   $('#more').onclick = openMoreDialog;
-  $('#import').onclick = () => pick('.json', async f => { replacePreset(await f.text()); state.updateContext(current => { current.confirmedPaths = []; }); schedule('immediate'); renderEditor(); toast(t('已导入：{0}', f.name)); });
+  $('#import').onclick = () => pick('.json', (f, text) => { replacePreset(text); state.updateContext(current => { current.confirmedPaths = []; }); schedule('immediate'); renderEditor(); toast(t('已导入：{0}', f.name)); });
   $('#export').onclick = () => save(exportPreset(state.doc), 'FFmpegFreeUI-v6.json', 'application/json');
   $('#theme').onclick = () => { state.setTheme(state.theme === 'dark' ? 'light' : 'dark'); document.documentElement.dataset.theme = state.theme; persistence.schedule(); };
   $('#copy-preview').onclick = () => { if (state.mappingErrors.length) { return; } const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (state.context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };
