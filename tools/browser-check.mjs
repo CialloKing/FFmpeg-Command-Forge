@@ -157,6 +157,8 @@ const futureDownload = page.waitForEvent('download'); await page.getByRole('butt
 const futureExport = JSON.parse(await readFile('.cache/browser-future.json', 'utf8')); assert.deepEqual(futureExport.滤镜排序系统.find(x => x.实例ID === 'one').未知扩展, { keep: true });
 await page.waitForFunction(() => document.querySelector('#status-title').textContent === '不兼容'); assert.ok(await page.getByRole('button', { name: '复制最终脚本 ↗' }).isDisabled());
 malformedWorkspace.context.resources = null;
+// 先完成当前编辑的保存，再模拟损坏的历史缓存，避免 pagehide 正常补存覆盖测试夹具。
+await page.getByText('已保存到浏览器', { exact: true }).waitFor();
 await page.evaluate(({ key, workspace }) => localStorage.setItem(key, JSON.stringify(workspace)), { key: workspaceKey, workspace: malformedWorkspace });
 await page.reload();
 await page.getByLabel('输入文件 1 路径').waitFor();
@@ -281,5 +283,26 @@ assert.equal(await editPage.locator('.invalid-field').count(), 2);
 await editPage.getByText('请先修复滤镜排序字段中的类型错误。', { exact: true }).waitFor();
 assert.deepEqual(errors, []);
 await editing.close();
+const storageContext = await browser.newContext({ locale: 'zh-CN' });
+await storageContext.addInitScript(({ key, workspace }) => {
+  if (!localStorage.getItem(key)) { localStorage.setItem(key, JSON.stringify(workspace)); }
+  window.forgeWrites = 0;
+  const original = Storage.prototype.setItem;
+  Storage.prototype.setItem = function (name, value) { original.call(this, name, value); if (name === key) { window.forgeWrites++; } };
+}, { key: workspaceKey, workspace: { ...savedWorkspace, context: { ...savedWorkspace.context, resources: { 'template.txt': 'x'.repeat(1024 * 1024) } } } });
+const storagePage = await storageContext.newPage();
+storagePage.on('pageerror', e => errors.push(e.message));
+await storagePage.goto(pathToFileURL(path.resolve('FFmpeg Command Forge.html')).href);
+await storagePage.getByLabel('FFmpeg 程序', { exact: true }).evaluate(input => {
+  for (let i = 0; i < 30; i++) { input.value = 'ffmpeg-' + i; input.dispatchEvent(new Event('input', { bubbles: true })); }
+});
+assert.equal(await storagePage.evaluate(() => window.forgeWrites), 0);
+await storagePage.getByText('已保存到浏览器', { exact: true }).waitFor();
+assert.equal(await storagePage.evaluate(() => window.forgeWrites), 1);
+await storagePage.getByLabel('FFmpeg 程序', { exact: true }).fill('ffmpeg-latest');
+await storagePage.reload();
+assert.equal(await storagePage.getByLabel('FFmpeg 程序', { exact: true }).inputValue(), 'ffmpeg-latest');
+assert.deepEqual(errors, []);
+await storageContext.close();
 await browser.close();
 console.log(`${channel ? 'Edge' : 'Chromium'} 本地文件离线验收通过：中英文界面、覆盖授权、输出流、预设与工作区、脚本与 ZIP 下载、复制降级、参数搜索和移动布局。`);

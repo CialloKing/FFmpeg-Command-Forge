@@ -7,6 +7,7 @@ import { renderCommand, renderPlan } from './render';
 import { normalizeOrder, subtitleCandidates } from './filters';
 import { filename, isPresetPathField, pathStyle } from './paths';
 import { isProbeData, parseWorkspace } from './workspace';
+import { createPersistence, type SaveState } from './persistence';
 import { detectLocale, optionLabel, parameterLabel, presetText, translator, type Locale } from './i18n';
 import type { CommandPlan, ExecutionContext, InputTask, Preset, PresetDocument, RenderedPlan, Schema, Shell } from './types';
 
@@ -36,8 +37,10 @@ let previewTab: PreviewTab = 'commands';
 let doc: PresetDocument = readPreset(), context: ExecutionContext = defaultContext(), selected = '任务与环境', query = '', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
 let theme = 'dark';
 let allowOverwrite = false;
-type CacheState = 'saved' | 'quota' | 'blocked' | 'failed';
-let cacheState: CacheState | undefined;
+let cacheState: SaveState = { dirty: false };
+const persistence = createPersistence(cacheKey, workspaceSnapshot, state => {
+  if (state.dirty !== cacheState.dirty || state.result !== cacheState.result) { cacheState = state; renderCacheStatus(); }
+});
 let library: { name: string; preset: Preset }[] = [];
 function replacePreset(input?: string | Preset): void {
   doc = readPreset(input);
@@ -103,33 +106,21 @@ function pick(accept: string, callback: (file: File) => Promise<void>, multiple 
   input.onchange = async () => { for (const f of input.files || []) { try { await callback(f); } catch (error) { toast(error instanceof Error ? error.message : String(error)); } } };
   input.click();
 }
-function workspaceText(): string {
-  return JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }, null, 2);
-}
+function workspaceSnapshot() { return { format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }; }
+function workspaceText(): string { return JSON.stringify(workspaceSnapshot(), null, 2); }
 function downloadWorkspace(): void { save(workspaceText(), 'Forge-workspace.json', 'application/json'); }
 function renderCacheStatus(): void {
   const panel = document.querySelector<HTMLElement>('#cache-status');
   if (!panel) { return; }
-  panel.hidden = !cacheState;
+  const { dirty, result } = cacheState;
+  panel.hidden = !dirty && !result;
   panel.replaceChildren();
-  if (!cacheState) { return; }
-  if (cacheState === 'saved') { panel.append(el('small', '', t('已保存到浏览器'))); return; }
+  if (!dirty && !result) { return; }
+  if (result === 'saved') { panel.append(el('small', '', t('已保存到浏览器'))); return; }
+  if (!result) { panel.append(el('small', '', t('修改等待保存'))); return; }
   const reasons = { quota: '浏览器缓存容量不足。', blocked: '浏览器阻止了本地存储。', failed: '浏览器缓存写入失败。' };
-  panel.append(el('strong', '', t('当前修改尚未保存')), el('small', '', t(reasons[cacheState])),
+  panel.append(el('strong', '', t('当前修改尚未保存')), el('small', '', t(reasons[result])),
     button(t('下载工作区'), downloadWorkspace, 'small'));
-}
-function cached(): CacheState {
-  const previous = cacheState;
-  try {
-    localStorage.setItem(cacheKey, JSON.stringify({ format: 'ffmpeg-command-forge/workspace', version: 1, preset: doc.raw, context, theme }));
-    cacheState = 'saved';
-  } catch (cause) {
-    const name = cause instanceof Error ? cause.name : '';
-    cacheState = ['QuotaExceededError', 'NS_ERROR_DOM_QUOTA_REACHED'].includes(name) ? 'quota' :
-      name === 'SecurityError' ? 'blocked' : 'failed';
-  }
-  if (cacheState !== previous) { renderCacheStatus(); }
-  return cacheState;
 }
 function loadWorkspace(text: string): void {
   // Validate the whole document before replacing the current workspace.
@@ -142,7 +133,7 @@ function loadWorkspace(text: string): void {
 }
 try {
   const text = localStorage.getItem(cacheKey);
-  if (text) { loadWorkspace(text); cacheState = 'saved'; }
+  if (text) { loadWorkspace(text); persistence.restored(); }
 } catch { /* A damaged workspace cache must not prevent a fresh session. */ }
 try {
   const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]');
@@ -154,12 +145,13 @@ function edit(path: (string | number)[], value: any): void {
   target[path.at(-1)!] = value; doc = readPreset(raw); schedule();
 }
 const currentValue = (path: (string | number)[]) => path.reduce<any>((value, key) => value?.[key], doc.raw);
-function schedule(): void {
+function schedule(save: 'deferred' | 'immediate' | false = 'deferred'): void {
   generation++; currentPlan = undefined; currentRendered = undefined;
   $('#stream-summary').hidden = true;
   $('#copy-final').setAttribute('disabled', ''); $('#download-script').setAttribute('disabled', ''); $('#download-zip').setAttribute('disabled', '');
   $('#status-title').textContent = t('正在构建'); $('#status-caption').textContent = t('检查预设与执行环境');
-  clearTimeout(timer); timer = setTimeout(recompute, 100); cached();
+  clearTimeout(timer); timer = setTimeout(recompute, 100);
+  if (save) { persistence.schedule(); if (save === 'immediate') { persistence.flush(); } }
 }
 async function recompute(): Promise<void> {
   const id = ++generation;
@@ -409,7 +401,7 @@ function environment(): HTMLElement {
   grid.append(labeled(t('FFmpeg 程序'), textInput(context.ffmpeg, v => { context.ffmpeg = v; schedule(); }), t('默认从 PATH 查找，也可填写完整路径')), labeled(t('ffprobe 程序'), textInput(context.ffprobe, v => { context.ffprobe = v; schedule(); })));
   grid.append(labeled(t('工作目录'), textInput(context.cwd, v => { context.cwd = v; schedule(); }, t('例如 {0}', context.platform === 'windows' ? 'D:\\Media' : '/home/user/Media')), t('相对路径将在此目录下解释')), labeled(t('本次输出目录'), textInput(context.outputDirectory, v => { context.outputDirectory = v; schedule(); }, t('留空时使用预设或输入文件目录'))));
   const overwrite = el('input'); overwrite.type = 'checkbox'; overwrite.checked = allowOverwrite;
-  overwrite.onchange = () => { allowOverwrite = overwrite.checked; schedule(); };
+  overwrite.onchange = () => { allowOverwrite = overwrite.checked; schedule(false); };
   const overwriteField = labeled(t('允许本批脚本覆盖已有输出'), overwrite, t('递增命名仍会避让已有文件。命令预览始终使用防覆盖模式。'));
   overwriteField.classList.add('boolean'); overwriteField.prepend(overwrite);
   card.append(grid, overwriteField);
@@ -467,7 +459,7 @@ function presetCard(presets: { 名称: string; 数据: Preset }[], label: string
     const preset = presets[index];
     if (!preset) { return; }
     replacePreset(preset.数据);
-    schedule();
+    schedule('immediate');
     toast(t('已应用：{0}', texts[index].name));
   }, 'primary'));
   return card;
@@ -485,8 +477,8 @@ function presetLibrary(): HTMLElement {
   content.append(heading(`ffmpeg-full ${ffmpegFull.version}`, '02'), fullCard, heading(t('我的预设'), '03'));
   const saved = el('div', 'card stack'), name = textInput('', () => {}, t('为当前预设命名'));
   saved.append(row(name, button(t('保存副本'), () => { if (!name.value.trim()) { toast(t('请先填写预设名称')); return; } library.push({ name: name.value.trim(), preset: clone(doc.raw) }); persistLibrary(); renderEditor(); }, 'small')));
-  library.forEach((p, i) => { const r = el('div', 'saved-row'); r.append(el('span', 'grow', p.name), button(t('应用'), () => { replacePreset(p.preset); schedule(); toast(t('已应用：{0}', p.name)); }, 'small'), button(t('导出'), () => save(JSON.stringify(p.preset, null, 2), p.name + '.json', 'application/json'), 'small ghost'), button('×', () => { library.splice(i, 1); persistLibrary(); renderEditor(); }, 'small ghost')); saved.append(r); });
-  saved.append(el('small', '', t('浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。'))); content.append(saved, heading(t('原生预设'), '04'), button(t('查看或编辑完整 JSON'), () => openTextDialog(presetHint(), exportPreset(doc), text => { replacePreset(text); schedule(); renderEditor(); }), 'ghost')); return content;
+  library.forEach((p, i) => { const r = el('div', 'saved-row'); r.append(el('span', 'grow', p.name), button(t('应用'), () => { replacePreset(p.preset); schedule('immediate'); toast(t('已应用：{0}', p.name)); }, 'small'), button(t('导出'), () => save(JSON.stringify(p.preset, null, 2), p.name + '.json', 'application/json'), 'small ghost'), button('×', () => { library.splice(i, 1); persistLibrary(); renderEditor(); }, 'small ghost')); saved.append(r); });
+  saved.append(el('small', '', t('浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。'))); content.append(saved, heading(t('原生预设'), '04'), button(t('查看或编辑完整 JSON'), () => openTextDialog(presetHint(), exportPreset(doc), text => { replacePreset(text); schedule('immediate'); renderEditor(); }), 'ghost')); return content;
 }
 function persistLibrary(): void { try { localStorage.setItem(libraryKey, JSON.stringify(library)); } catch { toast(t('浏览器存储不可用，请导出 JSON 保存')); } }
 function renderEditor(): void {
@@ -629,10 +621,10 @@ function selectLanguage(preference: Locale | null): void {
   doc = readPreset(doc.raw);
   mountApp();
   $('#language').focus();
-  schedule();
+  schedule(false);
 }
 function newWorkspace(): void {
-  replacePreset(); context = defaultContext(); navigate('任务与环境'); schedule(); toast(t('已创建新方案'));
+  replacePreset(); context = defaultContext(); navigate('任务与环境'); schedule('immediate'); toast(t('已创建新方案'));
 }
 
 function openWorkspaceDialog(): void {
@@ -644,8 +636,8 @@ function openWorkspaceDialog(): void {
     button(t('导入工作区'), () => pick('.json', async file => {
       try { loadWorkspace(await file.text()); }
       catch (cause) { error.textContent = cause instanceof Error ? cause.message : String(cause); error.hidden = false; return; }
-      schedule(); renderEditor(); renderNav(); dialog.close();
-      toast(cacheState === 'saved' ? t('工作区已恢复') : t('工作区已载入，缓存未保存，请下载工作区。'));
+      schedule('immediate'); renderEditor(); renderNav(); dialog.close();
+      toast(cacheState.result === 'saved' ? t('工作区已恢复') : t('工作区已载入，缓存未保存，请下载工作区。'));
     })), error);
   body.append(box); dialog.showModal();
 }
@@ -666,9 +658,9 @@ function bindApp(): void {
   $('#new').onclick = newWorkspace;
   $('#workspace').onclick = openWorkspaceDialog;
   $('#more').onclick = openMoreDialog;
-  $('#import').onclick = () => pick('.json', async f => { replacePreset(await f.text()); context.confirmedPaths = []; schedule(); renderEditor(); toast(t('已导入：{0}', f.name)); });
+  $('#import').onclick = () => pick('.json', async f => { replacePreset(await f.text()); context.confirmedPaths = []; schedule('immediate'); renderEditor(); toast(t('已导入：{0}', f.name)); });
   $('#export').onclick = () => save(exportPreset(doc), 'FFmpegFreeUI-v6.json', 'application/json');
-  $('#theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; cached(); };
+  $('#theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; persistence.schedule(); };
   $('#copy-preview').onclick = () => { const text = $('#command').textContent || ''; void copy(currentPlan?.status === 'ready' && !currentRendered?.issues.some(i => i.level === 'error') ? text : (context.shell === 'cmd' ? 'REM ' : '# ') + t('仅供预览，尚不可执行') + '\n' + text); };
   $('#copy-final').onclick = () => { if (currentRendered?.copyable) { void copy(currentRendered.script); } };
   $('#download-script').onclick = () => { if (currentRendered) { const { content, name } = currentRendered.download; save(content, name, 'text/plain;charset=utf-8'); } };
@@ -681,6 +673,8 @@ function bindApp(): void {
   };
 }
 
+window.addEventListener('pagehide', () => persistence.flush());
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { persistence.flush(); } });
 document.documentElement.dataset.theme = theme;
 mountApp();
 void recompute();
