@@ -42,6 +42,18 @@ try {
   await page.getByLabel('显式路径映射', { exact: true }).fill('');
   await page.getByText('命令已就绪', { exact: true }).waitFor();
   assert.equal(await page.locator('#copy-final').isDisabled(), false);
+  const preset = { 预设文件版本: 6, 视频参数_烧录字幕_主要颜色: { 已设置: true, R: 123 }, 视频参数_比特率_控制方式: 'crf', 元数据_要写入的信息: [null, { 字段: 'title', 值: 'kept' }] };
+  await upload(page.locator('#import'), preset);
+  await page.getByRole('button', { name: '字幕', exact: true }).click();
+  await page.locator('summary').filter({ hasText: '烧录字幕 / 主要颜色' }).click();
+  assert.equal(await page.locator('details').filter({ has: page.locator('summary', { hasText: '烧录字幕 / 主要颜色' }) }).getByLabel('A', { exact: true }).inputValue(), '255');
+  await page.getByRole('button', { name: '质量', exact: true }).click();
+  assert.equal(await page.getByLabel('比特率 / 控制方式', { exact: true }).inputValue(), 'CRF');
+  await page.getByRole('button', { name: '附加内容', exact: true }).click();
+  await page.locator('summary').filter({ hasText: '元数据 / 要写入的信息' }).click();
+  assert.equal(await page.getByLabel('值', { exact: true }).inputValue(), 'kept');
+  assert.equal(await page.getByText('空项，不参与命令生成。', { exact: true }).isVisible(), true);
+  assert.deepEqual((await saved()).preset, preset);
   assert.deepEqual(errors, []);
   console.log(`${channel ?? 'Chromium'} 第二轮编辑器回归通过`);
 } finally { await browser.close(); }

@@ -1,4 +1,4 @@
-import { blankValue, clone, data, matchesFieldShape, matchesFieldType, schema } from './preset';
+import { blankValue, clone, data, effectiveValue, matchesFieldShape, matchesFieldType, schema } from './preset';
 import { normalizeOrder } from './filters';
 import { optionLabel, parameterLabel, type Locale, type Translate } from './i18n';
 import { presetTarget } from './diagnostics';
@@ -46,17 +46,17 @@ export function createParameterEditor(options: ParameterEditorOptions) {
         }, 'small'));
       return field;
     }
-    value ??= blankValue(spec);
+    value ??= effectiveValue(readDocument(), path) ?? blankValue(spec);
     if (spec.kind === 'object' || spec.kind === 'array') {
       const wrapper = el('div', 'field wide');
       const details = el('details', 'nested'); const summary = el('summary', '', label + (spec.kind === 'array' ? t(' · {0} 项', (value || []).length) : '')); details.append(summary);
       if (spec.kind === 'object') {
-        const fields = el('div', 'parameter-fields'); for (const [k, s] of Object.entries(spec.fields!)) { fields.append(parameterField(k, s, value?.[k] ?? blankValue(s), [...path, k])); } details.append(fields);
+        const fields = el('div', 'parameter-fields'); for (const [k, s] of Object.entries(spec.fields!)) { fields.append(parameterField(k, s, value?.[k], [...path, k])); } details.append(fields);
       } else {
         const list = el('div'); const values: any[] = value || [];
         // 字段编辑会替换预设对象；结构操作必须读取最新数组，不能写回渲染时的快照。
         const change = (update: (items: any[]) => void) => {
-          const items = clone(currentValue(path) ?? []);
+          const items = clone(currentValue(path) ?? effectiveValue(readDocument(), path) ?? []);
           update(items); edit(path, items);
           const replacement = parameterField(key, spec, currentValue(path), path);
           replacement.querySelector('details')!.open = details.open;
@@ -64,7 +64,8 @@ export function createParameterEditor(options: ParameterEditorOptions) {
         };
         values.forEach((v, i) => {
           const item = issueTarget(el('div', 'array-item'), presetTarget([...path, i]));
-          if (spec.items!.kind === 'object' && matchesFieldType(v, spec.items!)) { for (const [k, s] of Object.entries(spec.items!.fields!)) { item.append(parameterField(k, s, v?.[k] ?? blankValue(s), [...path, i, k])); } }
+          if (v === null) { item.append(el('p', 'muted', t('空项，不参与命令生成。'))); }
+          else if (spec.items!.kind === 'object' && matchesFieldType(v, spec.items!)) { for (const [k, s] of Object.entries(spec.items!.fields!)) { item.append(parameterField(k, s, v?.[k], [...path, i, k])); } }
           else { item.append(parameterField(t('第 {0} 项', i + 1), spec.items!, v, [...path, i])); }
           const actions = el('div', 'array-actions');
           const move = (delta: number) => change(items => { if (i + delta < 0 || i + delta >= items.length) { return; } [items[i], items[i + delta]] = [items[i + delta], items[i]]; });
@@ -79,6 +80,8 @@ export function createParameterEditor(options: ParameterEditorOptions) {
     }
     let input: HTMLElement;
     if (spec.kind === 'enum') {
+      const invalid = readDocument().issues.some(issue => issue.target?.scope === 'preset' && JSON.stringify(issue.target.path) === JSON.stringify(path));
+      if (!invalid) { value = effectiveValue(readDocument(), path) ?? value; }
       const name = typeof value === 'number' ? Object.keys(spec.values!).find(k => spec.values![k] === value) || String(value) : String(value);
       const options: Choice[] = Object.keys(spec.values!).map(k => [k, optionLabel(readLocale(), k)]); if (!Object.hasOwn(spec.values!, name)) { options.unshift([name, t('未知：{0}', name)]); }
       input = choiceInput(options, name, v => edit(path, v));

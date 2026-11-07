@@ -28,3 +28,15 @@ test('映射草稿完整应用，v1 迁移和 v2 恢复保留原文及最后有�
   assert.equal(JSON.stringify(state.snapshot()), before);
   assert.deepEqual(parseMappingDraft(' \n a => b=>c\n'), { mappings: [{ from: 'a', to: 'b=>c' }], invalidLines: [] });
 });
+
+
+test('有效值按原始数组索引读取，保留预设原文', async () => {
+  const { importPreset, effectiveValue, exportPreset } = await import('../src/preset');
+  const raw = { 预设文件版本: 6, 视频参数_烧录字幕_主要颜色: { 已设置: true, R: 123 }, 视频参数_比特率_控制方式: 'crf', 元数据_要写入的信息: [null, { 字段: 'title', 值: 'kept' }] };
+  const doc = importPreset(raw);
+  assert.equal(effectiveValue(doc, ['视频参数_烧录字幕_主要颜色', 'A']), 255);
+  assert.equal(effectiveValue(doc, ['视频参数_比特率_控制方式']), 1);
+  assert.equal(effectiveValue(doc, ['元数据_要写入的信息', 0]), undefined);
+  assert.equal(effectiveValue(doc, ['元数据_要写入的信息', 1, '值']), 'kept');
+  assert.deepEqual(JSON.parse(exportPreset(doc)), raw);
+});

@@ -68,6 +68,19 @@ export function importPreset(input?: string | Preset, t: Translate = sourceText)
   return { raw, normalized, issues };
 }
 export function exportPreset(doc: PresetDocument): string { return JSON.stringify(doc.raw, null, 2) + '\n'; }
+export function effectiveValue(doc: PresetDocument, path: FieldPath): any {
+  let raw: any = doc.raw, normalized: any = doc.normalized;
+  for (const key of path) {
+    let effectiveKey = key;
+    // 运行对象移除了 null 数组项；编辑器必须继续使用原始 JSON 的索引。
+    if (typeof key === 'number' && Array.isArray(raw)) {
+      if (raw[key] === null) { return undefined; }
+      effectiveKey = raw.slice(0, key).filter(value => value !== null).length;
+    }
+    raw = raw?.[key]; normalized = normalized?.[effectiveKey];
+  }
+  return normalized;
+}
 export function patchPreset(doc: PresetDocument, key: string, value: unknown): PresetDocument { return importPreset({ ...doc.raw, [key]: value }); }
 
 export const groups = ['输出', '解码', '编码器', '画面', '字幕', '质量', '色彩', '音频', '剪辑', '流控制', '附加内容', '自定义参数', '预设信息'];

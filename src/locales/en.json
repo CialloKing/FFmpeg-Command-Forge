@@ -270,5 +270,6 @@
   "解压整个任务包后运行 forge-task.cmd。启动器需要同目录的 forge-task.ps1。": "Extract the entire task bundle and run forge-task.cmd. The launcher needs forge-task.ps1 in the same directory.",
   "模板副本位于 resources，完整脚本会准备所需的临时文件。": "Template copies are in resources. The full script prepares any temporary files it needs.",
   "草稿已保存，路径映射仍需修正": "Draft saved; path mappings still need correction",
-  "路径映射第 {0} 行格式无效；预览仍使用上次有效映射，请修正后输出。": "Invalid path mapping on line(s) {0}. Preview uses the last valid mappings; fix the draft before exporting."
+  "路径映射第 {0} 行格式无效；预览仍使用上次有效映射，请修正后输出。": "Invalid path mapping on line(s) {0}. Preview uses the last valid mappings; fix the draft before exporting.",
+  "空项，不参与命令生成。": "Empty item; ignored when generating commands."
 }
