@@ -55,13 +55,15 @@ export function argumentReads(args: readonly string[]): { indices: number[]; opa
     if (readOption.test(option)) {
       if (args[i + 1] === undefined) { opaque = true; continue; }
       indices.push(++i);
+      // Playlists and frame-server scripts can read files that are absent from argv.
+      if (option === '-i' && /\.(?:m3u8?|mpd|ffconcat|sdp|pls|asx|avs|vpy)(?:[?#].*)?$/i.test(args[i])) { opaque = true; }
       if (option !== '-i' && !option.startsWith('-attach')) { opaque = true; }
       continue;
     }
     if (flagOptions.has(option) || !option.startsWith('-')) { continue; }
     const value = args[i + 1];
     if (value === undefined) { continue; }
-    if (option === '-f' && /^(concat|lavfi)$/i.test(value)) { opaque = true; }
+    if (option === '-f' && /^(concat|lavfi|hls|dash|sdp)$/i.test(value)) { opaque = true; }
     if (/^(?:-vf|-af|-filter(?::.*)?|-filter_complex|-lavfi)$/.test(option) &&
       /(?:^|[;,\]])\s*(?:a?movie)\s*=|(?:filename|fontfile|textfile|custom_shader_path)\s*=/i.test(value)) { opaque = true; }
     // Known values such as metadata may themselves look like switches.

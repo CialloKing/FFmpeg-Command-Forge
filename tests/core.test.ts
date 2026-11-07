@@ -185,8 +185,14 @@ test('附加参数的输入先映射再保留，协议输入关闭覆盖授权',
   assert.equal(plan.status, 'incompatible');
   assert.ok(plan.tasks[0].reads?.includes('D:\\Media\\secondary.mkv'));
   assert.ok(plan.tasks[0].reads?.includes('D:\\Media\\attachment.ttf'));
+  const automatic = await buildPlan(importPreset({ 输出容器: 'mkv', 输出命名_替代文本: 'secondary', 输出_自动命名选项: 11, 自定义参数_之前参数: '-i "X:\\Assets\\secondary01.mkv"' }), { ...c, inputs: [{ id: 'one', path: 'primary.mp4' }] });
+  assert.equal(automatic.status, 'ready');
+  assert.equal(automatic.tasks[0].output, 'D:\\Media\\secondary02.mkv');
   const remote = await buildPlan(importPreset({ 自定义参数_之前参数: '-i "https://example.com/input.mkv"' }), { ...c, inputs: [{ id: 'one', path: 'primary.mkv', output: 'output.mkv' }] }, undefined, true);
   assert.equal(remote.status, 'ready');
   assert.equal(remote.allowOverwrite, false);
+  const nested = await buildPlan(importPreset({ 自定义参数_之前参数: '-i "local-list.m3u8"' }), { ...c, inputs: [{ id: 'one', path: 'primary.mkv', output: 'output.mkv' }] }, undefined, true);
+  assert.equal(nested.allowOverwrite, false);
+  assert.ok(nested.tasks[0].reads?.includes('D:\\Media\\local-list.m3u8'));
   assert.deepEqual(argumentReads(['-metadata', '-i', '-i', 'real.mkv']).indices, [3]);
 });

@@ -138,6 +138,17 @@ test('转码前检查整批输出，覆盖授权拒绝源文件硬链接', { ski
   const blocked = spawnSync(pwsh, ['-NoProfile', '-File', guardedScript], { encoding: 'utf8', timeout: 15000 });
   assert.notEqual(blocked.status, 0);
   assert.deepEqual(readFileSync(target), before);
+  const attachmentAlias = path.join(dir, 'attachment-alias.mkv');
+  linkSync(target, attachmentAlias);
+  c.inputs[0].output = attachmentAlias;
+  c.pathMappings = [{ from: 'X:\\Assets', to: dir }];
+  for (const option of ['-i', '-attach']) {
+    const mapped = await buildPlan(importPreset({ 视频参数_编码器_具体编码: 'copy', 自定义参数_之前参数: option + ' "X:\\Assets\\occupied.mkv"' }), c, english, true);
+    assert.equal(mapped.status, 'ready', JSON.stringify(mapped.issues));
+    execute(mapped, dir, true);
+    assert.deepEqual(readFileSync(target), before);
+    assert.deepEqual(readFileSync(input), original);
+  }
 });
 
 test('辅助文件按 UTF-8 写入且阶段失败后不继续', { skip: process.platform !== 'win32' }, async () => {
