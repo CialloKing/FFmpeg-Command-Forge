@@ -1,5 +1,6 @@
 import upstream from './data/upstream.json';
-import type { Issue, Preset, PresetDocument, Schema } from './types';
+import type { FieldPath, Issue, Preset, PresetDocument, Schema } from './types';
+import { fieldPathText, presetTarget } from './diagnostics';
 import { sourceText, type Translate } from './i18n';
 
 export const data = upstream as unknown as { defaults: Preset; schema: Schema; video: Record<string, any>; audio: any[]; builtins: { 名称: string; 数据: Preset }[] };
@@ -20,7 +21,9 @@ export function matchesFieldShape(value: any, spec: Schema): boolean {
 }
 const meaningful = (v: unknown): boolean => v !== null && v !== '' && v !== false && v !== 0 && (Array.isArray(v) ? v.length > 0 : typeof v === 'object' ? Object.values(v as object).some(meaningful) : true);
 
-function normalize(value: any, spec: Schema, fallback: any, path: string, issues: Issue[], t: Translate): any {
+function normalize(value: any, spec: Schema, fallback: any, path: FieldPath, issues: Issue[], t: Translate): any {
+  const field = fieldPathText(path);
+  const problem = (message: string) => issues.push({ level: 'error', field, target: presetTarget(path), message });
   if (fallback === undefined) { fallback = spec.defaults; }
   if (value === undefined || value === null) { value = fallback ?? (spec.kind === 'object' ? {} : spec.kind === 'array' ? [] : spec.kind === 'boolean' ? false : spec.kind === 'number' ? 0 : spec.kind === 'enum' ? 0 : ''); }
   if (spec.kind === 'enum') {
@@ -33,34 +36,35 @@ function normalize(value: any, spec: Schema, fallback: any, path: string, issues
       n = /^[+-]?\d+$/.test(name) ? Number(name) : values.find(([key]) => key.toLowerCase() === name)?.[1];
     }
     // v6 retains this legacy VBR enum value even though it is absent from Enum.GetNames.
-    if (path === '视频参数_比特率_控制方式' && n === 3) { n = 2; }
+    if (field === '视频参数_比特率_控制方式' && n === 3) { n = 2; }
     if (n === undefined || !values.some(([, known]) => known === n)) {
-      issues.push({ level: 'error', field: path, message: t('{0}：未知枚举 {1}', path, String(value)) }); return 0;
+      problem(t('{0}：未知枚举 {1}', field, String(value))); return 0;
     }
     return n;
   }
   if (spec.kind === 'array') {
-    if (!Array.isArray(value)) { issues.push({ level: 'error', field: path, message: t('{0} 必须是数组', path) }); return []; }
-    return value.filter(x => x !== null).map((v, i) => normalize(v, spec.items!, undefined, `${path}[${i}]`, issues, t));
+    if (!Array.isArray(value)) { problem(t('{0} 必须是数组', field)); return []; }
+    // 运行对象仍跳过 null，但诊断必须指向原始 JSON 中的索引。
+    return value.flatMap((v, i) => v === null ? [] : [normalize(v, spec.items!, undefined, [...path, i], issues, t)]);
   }
   if (spec.kind === 'object') {
-    if (typeof value !== 'object' || Array.isArray(value)) { issues.push({ level: 'error', field: path, message: t('{0} 必须是对象', path) }); value = {}; }
+    if (typeof value !== 'object' || Array.isArray(value)) { problem(t('{0} 必须是对象', field)); value = {}; }
     const result: Preset = {};
-    for (const [key, child] of Object.entries(spec.fields!)) { result[key] = key === '实例ID' && !value[key] ? crypto.randomUUID().replaceAll('-', '') : normalize(value[key], child, fallback?.[key], path ? `${path}.${key}` : key, issues, t); }
+    for (const [key, child] of Object.entries(spec.fields!)) { result[key] = key === '实例ID' && !value[key] ? crypto.randomUUID().replaceAll('-', '') : normalize(value[key], child, fallback?.[key], [...path, key], issues, t); }
     for (const key of Object.keys(value)) {
-      if (!Object.hasOwn(spec.fields!, key) && meaningful(value[key])) { issues.push({ level: 'error', field: path ? `${path}.${key}` : key, message: t('未识别的非空字段：{0}{1}', path ? path + '.' : '', key) }); }
+      if (!Object.hasOwn(spec.fields!, key) && meaningful(value[key])) { issues.push({ level: 'error', field: fieldPathText([...path, key]), target: presetTarget([...path, key]), message: t('未识别的非空字段：{0}{1}', field ? field + '.' : '', key) }); }
     }
     return result;
   }
-  if (typeof value !== spec.kind) { issues.push({ level: 'error', field: path, message: t('{0} 应为 {1}', path, spec.kind) }); return fallback ?? (spec.kind === 'string' ? '' : spec.kind === 'boolean' ? false : 0); }
+  if (typeof value !== spec.kind) { problem(t('{0} 应为 {1}', field, spec.kind)); return fallback ?? (spec.kind === 'string' ? '' : spec.kind === 'boolean' ? false : 0); }
   return value;
 }
 export function importPreset(input?: string | Preset, t: Translate = sourceText): PresetDocument {
   const raw = input === undefined ? clone(data.defaults) : typeof input === 'string' ? JSON.parse(input.replace(/^\uFEFF/, '')) : clone(input);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { throw new Error(t('预设必须是 JSON 对象')); }
   const issues: Issue[] = [];
-  const normalized = normalize(raw, schema, data.defaults, '', issues, t);
-  if (normalized.预设文件版本 !== 6) { issues.unshift({ level: 'error', field: '预设文件版本', message: t('预设版本 {0} 不在 v6 兼容范围内', normalized.预设文件版本) }); }
+  const normalized = normalize(raw, schema, data.defaults, [], issues, t);
+  if (normalized.预设文件版本 !== 6) { issues.unshift({ level: 'error', field: '预设文件版本', target: presetTarget(['预设文件版本']), message: t('预设版本 {0} 不在 v6 兼容范围内', normalized.预设文件版本) }); }
   return { raw, normalized, issues };
 }
 export function exportPreset(doc: PresetDocument): string { return JSON.stringify(doc.raw, null, 2) + '\n'; }

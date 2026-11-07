@@ -46,3 +46,6 @@ input,textarea{width:100%;border:1px solid var(--border);border-radius:6px;backg
 .choice-option:hover,.choice-option[aria-selected=true] { background:var(--accent-dim); color:var(--accent); }
 .choice-empty { color:var(--muted); }
 .invalid-field pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:160px; overflow:auto; }
+.issue-link { display:block; width:100%; text-align:left; font:inherit; cursor:pointer; }
+.issue-link:hover,.issue-link:focus-visible { border-color:var(--accent); }
+.issue-focus { outline:2px solid var(--accent); outline-offset:4px; }

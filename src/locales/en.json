@@ -1,4 +1,6 @@
 {
+  "此问题对应的项目已变更，请查看最新诊断。": "This item has changed. Check the latest diagnostics.",
+  "输入 {0}：{1}": "Input {0}: {1}",
   "修改等待保存": "Changes are waiting to be saved",
   "字段类型不匹配，原始值已保留。": "The field has the wrong type. Its original value has been preserved.",
   "编辑此字段 JSON": "Edit this field as JSON",

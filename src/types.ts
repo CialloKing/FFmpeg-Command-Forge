@@ -5,7 +5,9 @@ export type Shell = 'powershell' | 'powershell5' | 'cmd' | 'bash' | 'zsh';
 export type StreamType = 'v' | 'a' | 's';
 export type StreamSelection = 'mapped' | 'pending' | 'automatic' | 'omitted' | 'unknown';
 export type StreamSummary = Record<StreamType, StreamSelection> & { fallback?: 'possible' | 'confirmed'; sourceAudio?: boolean };
-export interface Issue { level: 'error' | 'missing' | 'info'; message: string; field?: string }
+export type FieldPath = (string | number)[];
+export interface IssueTarget { scope: 'preset' | 'context'; path: FieldPath; taskId?: string }
+export interface Issue { level: 'error' | 'missing' | 'info'; message: string; field?: string; target?: IssueTarget }
 export interface PresetDocument { raw: Preset; normalized: Preset; issues: Issue[] }
 export interface ProbeData {
   format?: { duration?: string | number | null; [key: string]: unknown };

@@ -19,6 +19,22 @@ test('预设往返保留原始嵌套数据，未知内容阻断执行', async ()
   assert.equal(importPreset({ 预设文件版本: 5 }).issues[0].level, 'error');
 });
 
+test('诊断保留原始数组索引，不合并不同输入的同文案错误', async () => {
+  const doc = importPreset({ 元数据_要写入的信息: [null, { 字段: 7, 值: '' }] });
+  assert.deepEqual(doc.issues[0].target, { scope: 'preset', path: ['元数据_要写入的信息', 1, '字段'] });
+  const c = defaultContext(); c.inputs = [{ id: 'first', path: '' }, { id: 'second', path: '' }];
+  const plan = await buildPlan(importPreset(), c);
+  const missing = plan.issues.filter(issue => issue.message === '请填写输入文件的实际执行路径');
+  assert.deepEqual(missing.map(issue => issue.target), [
+    { scope: 'context', path: ['path'], taskId: 'first' },
+    { scope: 'context', path: ['path'], taskId: 'second' }
+  ]);
+  const attachment = importPreset({ 附件_要写入的附件: [null, { 类型: '字体文件', 文件路径: '' }] });
+  const attachmentPlan = await buildPlan(attachment, c);
+  assert.deepEqual(attachmentPlan.issues.find(issue => issue.message === '附件已选择类型，请补充文件路径')?.target,
+    { scope: 'preset', path: ['附件_要写入的附件', 1, '文件路径'] });
+});
+
 test('原版参数与 TypeScript 执行计划保持一致', async () => {
   const cases: { name: string; preset: any; duration?: string; input?: string; output?: string; expectReady?: boolean }[] = [
     { name: 'default', preset: {} },

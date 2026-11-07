@@ -8,8 +8,9 @@ import { normalizeOrder, subtitleCandidates } from './filters';
 import { filename, isPresetPathField, pathStyle } from './paths';
 import { isProbeData, parseWorkspace } from './workspace';
 import { createPersistence, type SaveState } from './persistence';
+import { contextTarget, presetTarget, targetKey } from './diagnostics';
 import { detectLocale, optionLabel, parameterLabel, presetText, translator, type Locale } from './i18n';
-import type { CommandPlan, ExecutionContext, InputTask, Preset, PresetDocument, RenderedPlan, Schema, Shell } from './types';
+import type { CommandPlan, ExecutionContext, FieldPath, InputTask, IssueTarget, Preset, PresetDocument, RenderedPlan, Schema, Shell } from './types';
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?: string): HTMLElementTagNameMap[K] { const node = document.createElement(tag); node.className = className; if (text !== undefined) { node.textContent = text; } return node; }
@@ -176,6 +177,25 @@ function renderNav(): void {
   nav.append(el('div', 'sidebar-foot', 'V1.0 / LOCAL FIRST\n' + t('参数属于你，执行由你掌控。')));
 }
 function navigate(name: string): void { selected = name; query = ''; renderEditor(); renderNav(); }
+function issueTarget<T extends HTMLElement>(node: T, target: IssueTarget): T { node.dataset.issueTarget = targetKey(target); return node; }
+function openPresetJson(): void {
+  openTextDialog(presetHint(), exportPreset(doc), text => { replacePreset(text); schedule('immediate'); renderEditor(); });
+}
+function focusIssue(target: IssueTarget): void {
+  if (target.taskId && !context.inputs.some(task => task.id === target.taskId)) { toast(t('此问题对应的项目已变更，请查看最新诊断。')); return; }
+  if (target.scope === 'preset' && !Object.hasOwn(schema.fields!, target.path[0])) { openPresetJson(); return; }
+  navigate(target.scope === 'preset' ? groupFor(String(target.path[0])) : '任务与环境');
+  const targets = [...document.querySelectorAll<HTMLElement>('[data-issue-target]')];
+  const node = targets.find(node => node.dataset.issueTarget === targetKey(target)) ??
+    (target.taskId ? targets.find(node => node.dataset.issueTarget === targetKey(contextTarget([], target.taskId))) : undefined);
+  if (!node) { if (target.scope === 'preset') { openPresetJson(); } return; }
+  for (let parent: HTMLElement | null = node; parent; parent = parent.parentElement) { if (parent instanceof HTMLDetailsElement) { parent.open = true; } }
+  const detail = node.querySelector('details'); if (detail) { detail.open = true; }
+  const control = node.querySelector<HTMLElement>('input,textarea,select,button,summary') ?? node;
+  if (control === node) { node.tabIndex = -1; }
+  node.scrollIntoView({ block: 'center' }); control.focus({ preventScroll: true });
+  node.classList.add('issue-focus'); setTimeout(() => node.classList.remove('issue-focus'), 2000);
+}
 function labeled(label: string, node: HTMLElement, hint = '', wide = false): HTMLDivElement {
   const field = el('div', 'field' + (wide ? ' wide' : '')); const control = node.querySelector('input[role="combobox"]') ?? node;
   const id = 'field-' + crypto.randomUUID(); control.id = id; const l = el('label', '', label); l.htmlFor = id; field.append(l, node); if (hint) { field.append(el('small', 'hint', hint)); } return field;
@@ -292,7 +312,10 @@ const familyHints: [string, string][] = [
   ['流控制_', '-map / -c:s / -map_metadata / -map_chapters'], ['元数据_', '-metadata'], ['章节_', '-f ffmetadata / -map_chapters'], ['附件_', '-attach / -metadata:s:t / -disposition'], ['自定义参数_视频滤镜', '-vf / -filter:v / -filter_complex'], ['自定义参数_音频滤镜', '-af / -filter:a / -filter_complex']
 ];
 const fieldHint = (key: string) => t(parameterHints[key] || familyHints.find(([prefix]) => key.startsWith(prefix))?.[1] || '');
-function parameterField(key: string, spec: Schema, value: any, path: (string | number)[]): HTMLElement {
+function parameterField(key: string, spec: Schema, value: any, path: FieldPath): HTMLElement {
+  return issueTarget(renderParameterField(key, spec, value, path), presetTarget(path));
+}
+function renderParameterField(key: string, spec: Schema, value: any, path: FieldPath): HTMLElement {
   const label = parameterLabel(locale, key);
   const hint = path.length === 1 ? fieldHint(key) || (locale === 'zh-CN' ? key : '') : '';
   if (!matchesFieldType(value, spec)) {
@@ -324,7 +347,7 @@ function parameterField(key: string, spec: Schema, value: any, path: (string | n
         wrapper.replaceWith(replacement);
       };
       values.forEach((v, i) => {
-        const item = el('div', 'array-item');
+        const item = issueTarget(el('div', 'array-item'), presetTarget([...path, i]));
         if (spec.items!.kind === 'object' && matchesFieldType(v, spec.items!)) { for (const [k, s] of Object.entries(spec.items!.fields!)) { item.append(parameterField(k, s, v?.[k] ?? blankValue(s), [...path, i, k])); } }
         else { item.append(parameterField(t('第 {0} 项', i + 1), spec.items!, v, [...path, i])); }
         const actions = el('div', 'array-actions');
@@ -395,11 +418,12 @@ function renderProbeDetail(detail: HTMLElement, probe: ReturnType<typeof associa
   detail.textContent = probe ? t('已关联此路径 · {0} 个流 · 时长 {1} 秒', probe.streams?.length ?? 0, probe.format?.duration ?? t('未知')) : '';
 }
 function environment(): HTMLElement {
+  const field = (key: string, label: string, node: HTMLElement, hint = '') => issueTarget(labeled(label, node, hint), contextTarget([key]));
   const content = el('div', 'stack');
   const card = el('div', 'card stack'), grid = el('div', 'grid2');
-  grid.append(labeled(t('目标系统'), choiceInput([['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']], context.platform, v => { context.platform = v as ExecutionContext['platform']; context.shell = v === 'windows' ? 'powershell' : v === 'macos' ? 'zsh' : 'bash'; context.confirmedPaths = []; context.inputs.forEach(t => { t.probe = undefined; t.sidecarsConfirmed = false; }); schedule(); renderEditor(); })), labeled(t('执行终端'), choiceInput(Object.entries(labels).map(([value, label]) => [value, t(label)]), context.shell, v => { context.shell = v as Shell; schedule(); })));
-  grid.append(labeled(t('FFmpeg 程序'), textInput(context.ffmpeg, v => { context.ffmpeg = v; schedule(); }), t('默认从 PATH 查找，也可填写完整路径')), labeled(t('ffprobe 程序'), textInput(context.ffprobe, v => { context.ffprobe = v; schedule(); })));
-  grid.append(labeled(t('工作目录'), textInput(context.cwd, v => { context.cwd = v; schedule(); }, t('例如 {0}', context.platform === 'windows' ? 'D:\\Media' : '/home/user/Media')), t('相对路径将在此目录下解释')), labeled(t('本次输出目录'), textInput(context.outputDirectory, v => { context.outputDirectory = v; schedule(); }, t('留空时使用预设或输入文件目录'))));
+  grid.append(field('platform', t('目标系统'), choiceInput([['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']], context.platform, v => { context.platform = v as ExecutionContext['platform']; context.shell = v === 'windows' ? 'powershell' : v === 'macos' ? 'zsh' : 'bash'; context.confirmedPaths = []; context.inputs.forEach(t => { t.probe = undefined; t.sidecarsConfirmed = false; }); schedule(); renderEditor(); })), field('shell', t('执行终端'), choiceInput(Object.entries(labels).map(([value, label]) => [value, t(label)]), context.shell, v => { context.shell = v as Shell; schedule(); })));
+  grid.append(field('ffmpeg', t('FFmpeg 程序'), textInput(context.ffmpeg, v => { context.ffmpeg = v; schedule(); }), t('默认从 PATH 查找，也可填写完整路径')), field('ffprobe', t('ffprobe 程序'), textInput(context.ffprobe, v => { context.ffprobe = v; schedule(); })));
+  grid.append(field('cwd', t('工作目录'), textInput(context.cwd, v => { context.cwd = v; schedule(); }, t('例如 {0}', context.platform === 'windows' ? 'D:\\Media' : '/home/user/Media')), t('相对路径将在此目录下解释')), field('outputDirectory', t('本次输出目录'), textInput(context.outputDirectory, v => { context.outputDirectory = v; schedule(); }, t('留空时使用预设或输入文件目录'))));
   const overwrite = el('input'); overwrite.type = 'checkbox'; overwrite.checked = allowOverwrite;
   overwrite.onchange = () => { allowOverwrite = overwrite.checked; schedule(false); };
   const overwriteField = labeled(t('允许本批脚本覆盖已有输出'), overwrite, t('递增命名仍会避让已有文件。命令预览始终使用防覆盖模式。'));
@@ -408,33 +432,34 @@ function environment(): HTMLElement {
   content.append(heading(t('执行环境'), '01'), card, heading(t('输入文件'), '02'));
   const note = el('p', 'note', t('粘贴实际路径，或使用“工作目录 + 相对文件名”。拖入文件只取得文件名，不会把浏览器的虚拟路径当作本机路径。')); content.append(note);
   context.inputs.forEach((task, index) => {
-    const block = el('div', 'input-task'), title = row(el('span', 'task-id', 'INPUT ' + String(index + 1).padStart(2, '0')), el('span', 'grow'), button(t('移除'), () => { context.inputs.splice(index, 1); schedule(); renderEditor(); }, 'small ghost'));
+    const taskField = (key: string, label: string, node: HTMLElement, hint = '') => issueTarget(labeled(label, node, hint), contextTarget([key], task.id));
+    const block = issueTarget(el('div', 'input-task'), contextTarget([], task.id)), title = row(el('span', 'task-id', 'INPUT ' + String(index + 1).padStart(2, '0')), el('span', 'grow'), button(t('移除'), () => { context.inputs.splice(index, 1); schedule(); renderEditor(); }, 'small ghost'));
     const pathInput = textInput(task.path, v => { task.path = v; task.probe = undefined; task.sidecarsConfirmed = false; schedule(); }, t('输入媒体文件的真实路径')); pathInput.setAttribute('aria-label', t('输入文件 {0} 路径', index + 1));
     pathInput.ondragover = e => e.preventDefault(); pathInput.ondrop = e => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f) { task.path = f.name; task.probe = undefined; task.sidecarsConfirmed = false; schedule(); renderEditor(); toast(t('已取得文件名，请确认执行目录或补充真实路径')); } };
-    block.append(title, labeled(t('输入路径'), pathInput), labeled(t('指定输出文件（可选）'), textInput(task.output || '', v => { task.output = v; schedule(); }), t('填写后覆盖本次自动命名')));
+    block.append(title, taskField('path', t('输入路径'), pathInput), taskField('output', t('指定输出文件（可选）'), textInput(task.output || '', v => { task.output = v; schedule(); }), t('填写后覆盖本次自动命名')));
     const actions = el('div', 'row wrap');
     const applyProbe = (text: string) => { const probe: unknown = JSON.parse(text.replace(/^\uFEFF/, '')); if (!isProbeData(probe)) { throw new Error(t('文件不是 ffprobe 的 JSON 输出')); } task.probe = { path: task.path, resolvedPath: resolvedInput(task, context), data: probe }; schedule(); renderEditor(); };
     actions.append(button(t('导入 ffprobe JSON'), () => pick('.json', async f => applyProbe(await f.text())), 'small'), button(t('复制探测命令'), () => { const stage = currentPlan?.probes.find(s => s.taskId === task.id); if (stage) { void copy(renderCommand(stage, context.shell, false, t)); } }, 'small ghost'), button(t('粘贴探测结果'), () => openTextDialog(t('导入 ffprobe 结果'), '', text => applyProbe(text)), 'small ghost'));
-    block.append(actions);
+    block.append(issueTarget(actions, contextTarget(['probe'], task.id)));
     const probeDetail = el('small'); probeDetail.dataset.probeIndex = String(index);
     renderProbeDetail(probeDetail, associatedProbe(task, resolvedInput(task, context)));
     block.append(probeDetail);
     const a = doc.normalized;
     if (a.视频参数_烧录字幕_滤镜选择 && a.视频参数_烧录字幕_字幕来源是外部文件 === 1) {
       const input = textInput(task.subtitle || '', v => { task.subtitle = v; schedule(); }, t('实际字幕路径')); const candidates = subtitleCandidates(a, task.path.trim(), pathStyle(context.platform));
-      block.append(labeled(t('本次烧录的外部字幕'), input, t('候选：{0}', candidates.join(' · '))));
+      block.append(taskField('subtitle', t('本次烧录的外部字幕'), input, t('候选：{0}', candidates.join(' · '))));
       const candidateButtons = el('div', 'row wrap'); candidates.forEach(p => candidateButtons.append(button(filename(p, pathStyle(context.platform)), () => { task.subtitle = p; schedule(); renderEditor(); }, 'small'))); block.append(candidateButtons);
     }
     if (['SRT', 'ASS', 'SSA'].some(k => a['流控制_自动混流' + k])) {
       const input = el('textarea', 'mono'); input.value = (task.sidecars || []).join('\n'); input.placeholder = t('每行一个已确认存在的同名字幕路径，可留空'); input.onchange = () => { task.sidecars = input.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean); task.sidecarsConfirmed = false; schedule(); };
-      block.append(labeled(t('同名字幕清单'), input), button(task.sidecarsConfirmed ? t('✓ 已确认此字幕清单') : t('确认字幕清单（包括空清单）'), () => { task.sidecarsConfirmed = true; schedule(); renderEditor(); }, 'small'));
+      block.append(taskField('sidecars', t('同名字幕清单'), input), button(task.sidecarsConfirmed ? t('✓ 已确认此字幕清单') : t('确认字幕清单（包括空清单）'), () => { task.sidecarsConfirmed = true; schedule(); renderEditor(); }, 'small'));
     }
     content.append(block);
   });
-  const addTasks = row(button(t('+ 添加输入'), () => { context.inputs.push({ id: crypto.randomUUID().replaceAll('-', ''), path: '' }); schedule(); renderEditor(); }), button(t('批量粘贴路径'), () => openTextDialog(t('每行一个输入文件路径'), '', text => { for (const p of text.split(/\r?\n/).map(x => x.trim()).filter(Boolean)) { context.inputs.push({ id: crypto.randomUUID().replaceAll('-', ''), path: p.replace(/^"(.*)"$/, '$1') }); } if (context.inputs[0]?.path === '') { context.inputs.shift(); } schedule(); renderEditor(); }), 'ghost')); content.append(addTasks);
+  const addTasks = row(button(t('+ 添加输入'), () => { context.inputs.push({ id: crypto.randomUUID().replaceAll('-', ''), path: '' }); schedule(); renderEditor(); }), button(t('批量粘贴路径'), () => openTextDialog(t('每行一个输入文件路径'), '', text => { for (const p of text.split(/\r?\n/).map(x => x.trim()).filter(Boolean)) { context.inputs.push({ id: crypto.randomUUID().replaceAll('-', ''), path: p.replace(/^"(.*)"$/, '$1') }); } if (context.inputs[0]?.path === '') { context.inputs.shift(); } schedule(); renderEditor(); }), 'ghost')); content.append(issueTarget(addTasks, contextTarget(['inputs'])));
   content.append(heading(t('预设路径与资源'), '03'));
   const mappingCard = el('div', 'card stack'), mappings = el('textarea', 'mono'); mappings.value = context.pathMappings.map(m => m.from + ' => ' + m.to).join('\n'); mappings.placeholder = t('例如 {0}', 'D:\\Media => /Volumes/Media'); mappings.onchange = () => { context.pathMappings = mappings.value.split(/\r?\n/).filter(x => x.includes('=>')).map(x => { const i = x.indexOf('=>'); return { from: x.slice(0, i).trim(), to: x.slice(i + 2).trim() }; }); schedule(); };
-  mappingCard.append(labeled(t('显式路径映射'), mappings, t('每行一条“原目录 => 目标目录”，只转换确认过的前缀。')));
+  mappingCard.append(field('pathMappings', t('显式路径映射'), mappings, t('每行一条“原目录 => 目标目录”，只转换确认过的前缀。')));
   mappingCard.append(button(t('确认预设中的路径用于当前环境'), () => {
     const values: string[] = []; const visit = (o: Preset) => Object.entries(o).forEach(([k, v]) => { if (typeof v === 'string' && isPresetPathField(k)) { values.push(v); } else if (v && typeof v === 'object') { if (Array.isArray(v)) { v.filter(x => x && typeof x === 'object').forEach(visit); } else { visit(v); } } }); visit(doc.normalized); context.confirmedPaths = [...new Set([...context.confirmedPaths, ...values])]; schedule(); toast(t('已确认当前预设中的资源路径'));
   }, 'small'));
@@ -443,7 +468,7 @@ function environment(): HTMLElement {
     const key = '视频参数_视频帧服务器_' + kind + '脚本文件'; const path = doc.normalized[key];
     if (path || doc.normalized['视频参数_视频帧服务器_使用' + (kind === 'avs' ? 'AviSynth' : 'VapourSynth')]) { const block = el('div', 'resource'); block.append(el('p', '', (path || t('未选择 {0} 模板', kind)) + (context.resources[path] !== undefined ? t(' · 内容已导入') : '')), button(t('导入模板内容'), () => pick('.avs,.vpy,.py,.txt', async f => { const resourcePath = path || f.name; if (!path) { edit([key], resourcePath); } context.resources[resourcePath] = await f.text(); schedule(); renderEditor(); }), 'small')); resources.append(block); }
   }
-  mappingCard.append(resources); content.append(mappingCard); return content;
+  mappingCard.append(resources); content.append(issueTarget(mappingCard, contextTarget(['resources']))); return content;
 }
 function presetCard(presets: { 名称: string; 数据: Preset }[], label: string): HTMLElement {
   const card = el('section', 'card preset-card');
@@ -478,7 +503,7 @@ function presetLibrary(): HTMLElement {
   const saved = el('div', 'card stack'), name = textInput('', () => {}, t('为当前预设命名'));
   saved.append(row(name, button(t('保存副本'), () => { if (!name.value.trim()) { toast(t('请先填写预设名称')); return; } library.push({ name: name.value.trim(), preset: clone(doc.raw) }); persistLibrary(); renderEditor(); }, 'small')));
   library.forEach((p, i) => { const r = el('div', 'saved-row'); r.append(el('span', 'grow', p.name), button(t('应用'), () => { replacePreset(p.preset); schedule('immediate'); toast(t('已应用：{0}', p.name)); }, 'small'), button(t('导出'), () => save(JSON.stringify(p.preset, null, 2), p.name + '.json', 'application/json'), 'small ghost'), button('×', () => { library.splice(i, 1); persistLibrary(); renderEditor(); }, 'small ghost')); saved.append(r); });
-  saved.append(el('small', '', t('浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。'))); content.append(saved, heading(t('原生预设'), '04'), button(t('查看或编辑完整 JSON'), () => openTextDialog(presetHint(), exportPreset(doc), text => { replacePreset(text); schedule('immediate'); renderEditor(); }), 'ghost')); return content;
+  saved.append(el('small', '', t('浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。'))); content.append(saved, heading(t('原生预设'), '04'), button(t('查看或编辑完整 JSON'), openPresetJson, 'ghost')); return content;
 }
 function persistLibrary(): void { try { localStorage.setItem(libraryKey, JSON.stringify(library)); } catch { toast(t('浏览器存储不可用，请导出 JSON 保存')); } }
 function renderEditor(): void {
@@ -580,7 +605,14 @@ function renderOutput(): void {
   $<HTMLButtonElement>('#copy-final').disabled = !ready || !rendered.copyable;
   for (const id of ['download-script', 'download-zip']) { $<HTMLButtonElement>('#' + id).disabled = !ready; }
   const issueBox = $('#issues'); issueBox.replaceChildren();
-  if (issues.length) { issueBox.append(el('h3', '', t('需要关注'))); issues.forEach(issue => issueBox.append(el('div', 'issue ' + issue.level, issue.message))); }
+  if (issues.length) {
+    issueBox.append(el('h3', '', t('需要关注')));
+    for (const issue of issues) {
+      const index = issue.target?.taskId ? context.inputs.findIndex(task => task.id === issue.target!.taskId) : -1;
+      const message = index >= 0 && context.inputs.length > 1 ? t('输入 {0}：{1}', index + 1, issue.message) : issue.message;
+      issueBox.append(issue.target ? button(message, () => focusIssue(issue.target!), 'issue issue-link ' + issue.level) : el('div', 'issue ' + issue.level, message));
+    }
+  }
   else { issueBox.append(el('div', 'note accent', context.shell === 'cmd' ? t('CMD 完整脚本调用系统 PowerShell 完成文件准备与精确参数传递。请使用延迟展开关闭的 CMD。') : t('自动命名会在执行时检查实际文件冲突。普通命令视图使用当前候选输出路径。'))); }
 }
 async function copy(text: string): Promise<void> {
