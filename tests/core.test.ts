@@ -5,7 +5,7 @@ import { data, exportPreset, importPreset, patchPreset, schema } from '../src/pr
 import { buildPlan, defaultContext } from '../src/plan';
 import { parseArguments, windowsQuote } from '../src/arguments';
 import { argumentReads } from '../src/arguments';
-import { relativeSubdirectory, seconds } from '../src/paths';
+import { dirname, filename, relativeSubdirectory, seconds, stem, substitute } from '../src/paths';
 import ffmpegFull from '../src/data/ffmpeg-full-2026.11.3.json';
 
 test('预设往返保留原始嵌套数据，未知内容阻断执行', async () => {
@@ -156,6 +156,23 @@ test('批量固定输出不能占用其他输入或输出', async () => {
   const plan = await buildPlan(importPreset({}), c);
   assert.equal(plan.status, 'incompatible');
   assert.equal(plan.issues.filter(issue => issue.level === 'error').length, 2);
+});
+
+test('目标系统决定反斜杠语义，Windows 来源映射保持原有规则', async () => {
+  const input = "/media/中文 path/part\\name'01.mp4";
+  assert.equal(filename(input, 'posix'), "part\\name'01.mp4");
+  assert.equal(dirname(input, 'posix'), '/media/中文 path/');
+  assert.equal(stem(input, 'posix'), "part\\name'01");
+  assert.equal(filename('\\\\server\\share\\clip.mp4'), 'clip.mp4');
+  assert.equal(substitute('<InputFileWithOutExtension>|<InputFileName>', input, '', 'posix'), "/media/中文 path/part\\name'01|part\\name'01.mp4");
+  const c = defaultContext(); c.platform = 'linux'; c.shell = 'bash';
+  c.inputs = [{ id: 'posix', path: input }];
+  const plan = await buildPlan(importPreset({ 输出容器: 'mkv', 输出_自动命名选项: 0 }), c);
+  assert.equal(plan.status, 'ready');
+  assert.equal(plan.tasks[0].output, "/media/中文 path/part\\name'01.mkv");
+  c.pathMappings = [{ from: 'D:\\Media', to: '/media/中文 path' }];
+  c.inputs[0].path = 'd:/media/part/clip.mp4';
+  assert.equal((await buildPlan(importPreset({ 输出容器: 'mkv', 输出_自动命名选项: 0 }), c)).tasks[0].output, '/media/中文 path/part/clip.mkv');
 });
 
 test('附加参数的输入先映射再保留，协议输入关闭覆盖授权', async () => {

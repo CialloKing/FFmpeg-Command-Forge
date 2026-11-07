@@ -2,7 +2,7 @@ import type { CommandPlan, CommandStage, Issue, RenderedPlan, ScriptFile, Shell 
 import { windowsQuote } from './arguments';
 import { sourceText, type Translate } from './i18n';
 import { posixPreflight, posixQuote, psPath, psQuote, windowsPreflight } from './preflight';
-import { extension, withoutExtension } from './paths';
+import { extension, pathStyle, withoutExtension } from './paths';
 
 export { posixQuote, psQuote };
 export function cmdQuote(s: string, batch = false): string {
@@ -47,7 +47,7 @@ function windowsStatements(plan: CommandPlan, legacy: boolean, t: Translate): st
     if (task.stagedOutput) { body.push('$forgeStaged = [IO.Path]::Combine($forgeScratch,[IO.Path]::GetFileName($forgeOutput))'); }
     for (const asset of task.assets) {
       const base64 = b64(new TextEncoder().encode(asset.content));
-      body.push(`New-ForgeAsset ${psQuote(withoutExtension(asset.path))} ${psQuote(extension(asset.path))} ([Convert]::FromBase64String(${psQuote(base64)}))`);
+      body.push(`New-ForgeAsset ${psQuote(withoutExtension(asset.path, pathStyle(plan.context.platform)))} ${psQuote(extension(asset.path, pathStyle(plan.context.platform)))} ([Convert]::FromBase64String(${psQuote(base64)}))`);
     }
     for (const stage of task.stages) {
       const args = stage.args.map((arg, i) => {
@@ -127,7 +127,7 @@ function posixScript(plan: CommandPlan, t: Translate): string {
     if (task.stagedOutput) { lines.push('forge_staged="$forge_scratch/${forge_output##*/}"'); }
     for (const [assetIndex, asset] of task.assets.entries()) {
       // noclobber creates the sibling atomically, preserving relative imports in the template.
-      lines.push(`forge_asset=${posixQuote(withoutExtension(asset.path))}.forge.$$.$RANDOM.$RANDOM${posixQuote(extension(asset.path))}`,
+      lines.push(`forge_asset=${posixQuote(withoutExtension(asset.path, 'posix'))}.forge.$$.$RANDOM.$RANDOM${posixQuote(extension(asset.path, 'posix'))}`,
         'set -C', `exec 3> "$forge_asset"${fail}`, 'forge_assets+=("$forge_asset")',
         `printf '%s' ${posixQuote(asset.content)} >&3${fail}`, 'exec 3>&-');
       if (assetIndex === 0) { lines.push('forge_main_asset=$forge_asset'); }

@@ -1,9 +1,15 @@
-export const filename = (p: string) => p.slice(Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')) + 1);
-export const dirname = (p: string) => p.slice(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')) + 1);
-export const extension = (p: string) => { const n = filename(p); return n.includes('.') ? n.slice(n.lastIndexOf('.')) : ''; };
-export const stem = (p: string) => { const n = filename(p); return n.includes('.') ? n.slice(0, n.lastIndexOf('.')) : n; };
-export const withoutExtension = (p: string) => dirname(p) + stem(p);
-export function join(dir: string, name: string, style = dir): string { return dir ? dir.replace(/[\\/]+$/, '') + (style.includes('\\') ? '\\' : '/') + name : name; }
+export type PathStyle = 'windows' | 'posix';
+export const pathStyle = (platform: string): PathStyle => platform === 'windows' ? 'windows' : 'posix';
+const separatorIndex = (p: string, style: PathStyle) => style === 'windows' ? Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')) : p.lastIndexOf('/');
+export const filename = (p: string, style: PathStyle = 'windows') => p.slice(separatorIndex(p, style) + 1);
+export const dirname = (p: string, style: PathStyle = 'windows') => p.slice(0, separatorIndex(p, style) + 1);
+export const extension = (p: string, style: PathStyle = 'windows') => { const n = filename(p, style); return n.includes('.') ? n.slice(n.lastIndexOf('.')) : ''; };
+export const stem = (p: string, style: PathStyle = 'windows') => { const n = filename(p, style); return n.includes('.') ? n.slice(0, n.lastIndexOf('.')) : n; };
+export const withoutExtension = (p: string, style: PathStyle = 'windows') => dirname(p, style) + stem(p, style);
+export function join(dir: string, name: string, style = dir): string {
+  const windows = style === 'windows' || style !== 'posix' && style.includes('\\');
+  return dir ? dir.replace(windows ? /[\\/]+$/ : /\/+$/, '') + (windows ? '\\' : '/') + name : name;
+}
 export function splitTrailingSerial(value: string): { base: string; digits: string } {
   const digits = value.match(/\d+$/)?.[0] ?? '';
   return { base: value.slice(0, value.length - digits.length), digits };
@@ -45,28 +51,28 @@ export function relativeSubdirectory(directory: string, root: string, cwd: strin
 }
 
 export const isPlaceholder = (p: string) => /^<.*>$/.test(p);
-export const filterPath = (p: string) => isPlaceholder(p) ? p : p.startsWith('\\\\') ? '\\\\' + p.slice(2).replaceAll('\\', '\\\\') : /^[A-Za-z]:/.test(p) ? p[0] + '\\:' + p.slice(2).replaceAll('\\', '\\\\') : p.replaceAll('\\', '\\\\');
+export const filterPath = (p: string, style: PathStyle = 'windows') => isPlaceholder(p) ? p : style === 'posix' ? p.replaceAll('\\', '\\\\') : p.startsWith('\\\\') ? '\\\\' + p.slice(2).replaceAll('\\', '\\\\') : /^[A-Za-z]:/.test(p) ? p[0] + '\\:' + p.slice(2).replaceAll('\\', '\\\\') : p.replaceAll('\\', '\\\\');
 export function filterOptionValue(value: string): string {
   // The option parser reads colon and backslash after the filtergraph parser removes its quotes.
   const option = value.replace(/[\\':]|^\s+|\s+$/g, match => match.replace(/./gs, '\\$&'));
   return "'" + option.replaceAll("'", "'\\''") + "'";
 }
-export function substitute(text: string, input: string, output: string): string {
+export function substitute(text: string, input: string, output: string, style: PathStyle = 'windows'): string {
   const preview = ['<输入文件>', '<InputFile>'].includes(input.trim());
-  const directory = dirname(input);
+  const directory = dirname(input, style);
   // The original directory placeholder omits the last separator except at a root.
   const folder = directory.length > 1 ? directory.slice(0, -1) : directory;
-  const name = filename(input);
+  const name = filename(input, style);
   const dot = name.lastIndexOf('.');
   const base = dot > 0 ? name.slice(0, dot) : name;
   let inputWithoutExtension = base;
   if (folder && base) {
-    const style = input.includes('\\') || !input.includes('/') ? '\\' : '/';
-    inputWithoutExtension = /[\\/]$/.test(folder) ? folder + base : join(folder, base, style);
+    const separator = style === 'posix' ? 'posix' : input.includes('\\') || !input.includes('/') ? '\\' : '/';
+    inputWithoutExtension = (style === 'posix' ? /\/$/ : /[\\/]$/).test(folder) ? folder + base : join(folder, base, separator);
   }
   const replacement: Record<string, string> = {
-    '<\\InputFileWithOutExtension>': preview ? '<\\InputFileWithOutExtension>' : filterPath(inputWithoutExtension),
-    '<\\InputFilePath>': preview ? '<\\InputFilePath>' : filterPath(folder),
+    '<\\InputFileWithOutExtension>': preview ? '<\\InputFileWithOutExtension>' : filterPath(inputWithoutExtension, style),
+    '<\\InputFilePath>': preview ? '<\\InputFilePath>' : filterPath(folder, style),
     '<InputFileWithOutExtension>': preview ? '<InputFileWithOutExtension>' : inputWithoutExtension,
     '<InputFileNameWithOutExtension>': preview ? '<InputFileNameWithOutExtension>' : base,
     '<InputFilePath>': preview ? '<InputFilePath>' : folder,

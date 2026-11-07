@@ -5,7 +5,7 @@ import { buildGraph, summarizeStreams } from './graph';
 import { audioCodec, encode, twoPass, videoCodec } from './codecs';
 import { extraOutputs } from './extra';
 import { add, argumentReads, presetArguments } from './arguments';
-import { dirname, extension, filename, filterOptionValue, filterPath, formatSeconds, isAbsolute, isPlaceholder, isPresetPathField, isProtocol, join, pathKey, relativeSubdirectory, seconds, splitTrailingSerial, stem, windowsAbsolute, withoutExtension } from './paths';
+import { dirname, extension, filename, filterOptionValue, filterPath, formatSeconds, isAbsolute, isPlaceholder, isPresetPathField, isProtocol, join, pathKey, pathStyle, relativeSubdirectory, seconds, splitTrailingSerial, stem, windowsAbsolute, withoutExtension } from './paths';
 import { sourceText, type Translate } from './i18n';
 
 export function defaultContext(): ExecutionContext {
@@ -61,7 +61,7 @@ function clip(a: Preset): { before: string[]; after: string[] } {
   return { before, after };
 }
 function nameFor(a: Preset, input: string, c: ExecutionContext, taskId: string): string {
-  let name = (a.输出命名_开头文本 || '') + (a.输出命名_替代文本 || stem(input) || 'output') + a.输出命名_结尾文本;
+  let name = (a.输出命名_开头文本 || '') + (a.输出命名_替代文本 || stem(input, pathStyle(c.platform)) || 'output') + a.输出命名_结尾文本;
   const mode = a.输出_自动命名选项;
   if (mode === 1) { name = name.replace(/_\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}$/, '') + '_' + c.clock; }
   else if (mode === 2) { name += '~1'; }
@@ -100,10 +100,11 @@ function uniqueOutput(base: string, ext: string, mode: number, used: Set<string>
 async function passlog(input: string, output: string, c: ExecutionContext): Promise<string> {
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input + '|' + output));
   const token = [...new Uint8Array(hash).slice(0, 6)].map(n => n.toString(16).padStart(2, '0')).join('');
-  return join(dirname(input) || c.cwd || '.', `3fui-v6-passlog-${(stem(input) || 'input').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}-${token}`, input);
+  return join(dirname(input, pathStyle(c.platform)) || c.cwd || '.', `3fui-v6-passlog-${(stem(input, pathStyle(c.platform)) || 'input').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}-${token}`, c.platform === 'windows' ? input : 'posix');
 }
 export async function buildPlan(doc: PresetDocument, context: ExecutionContext, t: Translate = sourceText, allowOverwrite = false): Promise<CommandPlan> {
   const c = clone(context), a = clone(doc.normalized), issues: Issue[] = [...doc.issues], tasks: PlannedTask[] = [], probes: CommandStage[] = [], unconfirmed: { path: string; field: string }[] = [];
+  const style = pathStyle(c.platform);
   c.cwd = mapPath(c.cwd, c);
   const executionPath = (path: string) => resolvePath(mapPath(path, c), c);
   const executablePath = (path: string) => /[\\/]/.test(path) ? executionPath(path) : mapPath(path, c);
@@ -157,12 +158,12 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   const inputs = c.inputs.map(task => {
     const input = executionPath(task.path.trim());
     const external = task.subtitle ? executionPath(task.subtitle) : undefined;
-    const sidecars = autoSubtitle ? (task.sidecars || []).filter(file => a['流控制_自动混流' + extension(file).slice(1).toUpperCase()]).map(executionPath) : [];
+    const sidecars = autoSubtitle ? (task.sidecars || []).filter(file => a['流控制_自动混流' + extension(file, style).slice(1).toUpperCase()]).map(executionPath) : [];
     const reads = [input];
     const parsed = new Map<string, string[]>();
     let opaqueReads = false;
     for (const text of custom ? [custom] : argumentFields) {
-      const args = presetArguments(text, input, outputMarker, literalMapping);
+      const args = presetArguments(text, input, outputMarker, literalMapping, style);
       parsed.set(text, args);
       const scan = argumentReads(args);
       opaqueReads ||= scan.opaque;
@@ -191,9 +192,9 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
     if (!task.path.trim()) { problem('missing', t('请填写输入文件的实际执行路径')); }
     if (c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(input)) { problem('missing', t('Windows 路径需要显式映射：{0}', input)); }
     const explicitOutput = task.output ? executionPath(task.output) : '';
-    const ext = extension(explicitOutput).slice(1) || a.输出容器.trim().replace(/^\./, '') || extension(input).slice(1);
+    const ext = extension(explicitOutput, style).slice(1) || a.输出容器.trim().replace(/^\./, '') || extension(input, style).slice(1);
     if (!ext && managed) { problem('missing', t('请设置输出容器或指定带后缀的输出文件')); }
-    const inputDirectory = isProtocol(input) ? c.cwd : dirname(input);
+    const inputDirectory = isProtocol(input) ? c.cwd : dirname(input, style);
     let dir = outputDirectory || inputDirectory;
     if (outputDirectory && a.输出位置_保留子文件夹结构起始点.trim()) {
       const relative = relativeSubdirectory(inputDirectory, a.输出位置_保留子文件夹结构起始点, c.cwd, windows);
@@ -220,28 +221,28 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
     const output = incrementalNaming(naming) ? uniqueOutput(base, suffix, naming, managed ? used : new Set(), key) : fixed;
     if (c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(output)) { problem('missing', t('指定输出文件仍是 Windows 路径，请显式映射到目标系统')); }
     if (!custom) {
-      const actualExt = extension(output).toLowerCase(), matroska = ['.mkv', '.mka', '.mks', '.mk3d'].includes(actualExt), cover = matroska || ['.mp4', '.m4v', '.m4a', '.mov', '.3gp', '.3g2'].includes(actualExt);
+      const actualExt = extension(output, style).toLowerCase(), matroska = ['.mkv', '.mka', '.mks', '.mk3d'].includes(actualExt), cover = matroska || ['.mp4', '.m4v', '.m4a', '.mov', '.3gp', '.3g2'].includes(actualExt);
       for (const item of a.附件_要写入的附件) { if (!item.类型) { continue; } if (!item.文件路径.trim()) { problem('missing', t('附件已选择类型，请补充文件路径')); } else if (item.类型 === 2 ? !cover : !matroska) { problem('error', t('输出容器无法保存该附件：{0}', item.文件路径)); } else if (item.类型 === 2 && a.流控制_启用保留其他视频流 && !videoCodec(a)?.是否禁用) { problem('error', t('附加封面图需要确定输出视频数量；请使用明确的视频流选择并关闭“保留其他视频流”')); } }
     }
     const probe = associatedProbe(task, input);
     probes.push(probeStage(input, task.id, c, t));
-    if (!custom && [5, 6].includes(a.剪辑区间_方法) && (probe?.format?.duration === undefined || probe?.format?.duration === null || probe?.format?.duration === '' || !Number.isFinite(Number(probe?.format?.duration)))) { problem('missing', t('{0}：此剪辑方式需要导入 ffprobe 时长信息', filename(input))); }
+    if (!custom && [5, 6].includes(a.剪辑区间_方法) && (probe?.format?.duration === undefined || probe?.format?.duration === null || probe?.format?.duration === '' || !Number.isFinite(Number(probe?.format?.duration)))) { problem('missing', t('{0}：此剪辑方式需要导入 ffprobe 时长信息', filename(input, style))); }
     if (!custom && external && c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(external)) { problem('missing', t('外部字幕仍是 Windows 路径，请显式映射到目标系统')); }
     if (!custom && a.视频参数_烧录字幕_滤镜选择 && !a.视频参数_烧录字幕_自己写滤镜取代所有设置) {
-      if (a.视频参数_烧录字幕_字幕来源是外部文件 === 1 && !external) { problem('missing', t('{0}：请选择实际字幕路径；候选 {1}', filename(input), subtitleCandidates(a, input).join('、'))); }
-      if (a.视频参数_烧录字幕_字幕来源是外部文件 === 2 && (!probe || !a.视频参数_烧录字幕_指定内嵌的流)) { problem('missing', t('{0}：内嵌字幕需要 ffprobe 信息和字幕流编号', filename(input))); }
+      if (a.视频参数_烧录字幕_字幕来源是外部文件 === 1 && !external) { problem('missing', t('{0}：请选择实际字幕路径；候选 {1}', filename(input, style), subtitleCandidates(a, input, style).join('、'))); }
+      if (a.视频参数_烧录字幕_字幕来源是外部文件 === 2 && (!probe || !a.视频参数_烧录字幕_指定内嵌的流)) { problem('missing', t('{0}：内嵌字幕需要 ffprobe 信息和字幕流编号', filename(input, style))); }
       if (!a.视频参数_烧录字幕_字幕来源是外部文件) { problem('missing', t('烧录字幕已启用，请选择字幕来源')); }
     }
-    if (!custom && autoSubtitle && !task.sidecarsConfirmed) { problem('missing', t('{0}：请确认同名字幕清单（可以为空）', filename(input))); }
+    if (!custom && autoSubtitle && !task.sidecarsConfirmed) { problem('missing', t('{0}：请确认同名字幕清单（可以为空）', filename(input, style))); }
     const assets: { path: string; content: string }[] = [];
     let mainInput = input, vapour = false;
     if (!custom) {
       for (const [kind, suffix] of [['AviSynth', 'avs'], ['VapourSynth', 'vpy']] as const) {
         if (!a['视频参数_视频帧服务器_使用' + kind]) { continue; }
         const template = a['视频参数_视频帧服务器_' + suffix + '脚本文件'];
-        const content = c.resources[template] ?? c.resources[filename(template)];
+        const content = c.resources[template] ?? c.resources[filename(template, style)];
         if (!template || content === undefined) { problem('missing', t('{0}：请导入脚本模板文件', kind)); }
-        const scriptPath = withoutExtension(input) + '.' + task.id.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') + (kind === 'AviSynth' ? '.avs' : extension(template) || '.vpy');
+        const scriptPath = withoutExtension(input, style) + '.' + task.id.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') + (kind === 'AviSynth' ? '.avs' : extension(template, style) || '.vpy');
         assets.push({ path: scriptPath, content: (content || '').replaceAll('<FilePath>', () => input) });
         if (mainInput === input) { mainInput = scriptPath; vapour = kind === 'VapourSynth'; }
       }
@@ -259,7 +260,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
         streams = summarizeStreams(args, true);
       }
       else {
-        const clipping = clip(a), g = buildGraph(a, input, output, phase === 'pass1', external, outputMarker), extra = phase === 'pass1' ? { inputs: [], outputs: [] } : extraOutputs(a, g, input, output, sidecars, outputMarker);
+        const clipping = clip(a), g = buildGraph(a, input, output, phase === 'pass1', external, outputMarker, style), extra = phase === 'pass1' ? { inputs: [], outputs: [] } : extraOutputs(a, g, input, output, sidecars, outputMarker, style);
         appendCustom(args, a.自定义参数_开头参数);
         args.push('-hide_banner');
         if (managed && phase !== 'pass1') { overwriteArg = args.length; }
@@ -293,7 +294,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
       }
       if (overwriteArg !== undefined && args.some((arg, i) => arg === '-y' && i !== overwriteArg)) { problem('error', t('请移除附加参数中的 -y，并使用本次任务的覆盖设置。')); }
       if (c.platform !== 'windows' && args.some(p => /^[A-Za-z]:[\\/]/.test(p))) { problem('missing', t('命令中的资源仍有 Windows 路径，请显式映射到目标系统')); }
-      if (args.some(p => /<(?:输入文件|输出文件|媒体总时长|InputFile[^>]*|OutputFile|字幕文件[^>]*)>/.test(p))) { problem('missing', t('{0}：命令仍有未解析的占位符', filename(input))); }
+      if (args.some(p => /<(?:输入文件|输出文件|媒体总时长|InputFile[^>]*|OutputFile|字幕文件[^>]*)>/.test(p))) { problem('missing', t('{0}：命令仍有未解析的占位符', filename(input, style))); }
       if (args.some(p => p.includes('\0')) || c.ffmpeg.includes('\0')) { problem('error', t('参数和程序路径不能包含 NUL 字符')); }
       stages.push({ name: phase === 'pass1' ? t('两遍编码 · 第一遍') : phase === 'pass2' ? t('两遍编码 · 第二遍') : t('执行转码'), kind: phase, executable: c.ffmpeg, args, graph: graph.replaceAll(outputMarker, () => output), maps, taskId: task.id, outputArgs, overwriteArg, mediaOutputArg, assetArg, passlogArg });
     }
@@ -305,7 +306,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
         if (index !== stage.assetArg) { reads.push(resolvePath(stage.args[index], c)); }
       }
     }
-    tasks.push({ id: task.id, input, output, directory: dirname(output), stages, assets, preserve: { creation: a.输出命名_保留创建时间, modification: a.输出命名_保留修改时间, access: a.输出命名_保留访问时间 }, naming, candidateStem, extension: suffix, managedOutput: managed && localFile(output), stagedOutput, reads: [...new Set(reads)], opaqueReads, streams });
+    tasks.push({ id: task.id, input, output, directory: dirname(output, style), stages, assets, preserve: { creation: a.输出命名_保留创建时间, modification: a.输出命名_保留修改时间, access: a.输出命名_保留访问时间 }, naming, candidateStem, extension: suffix, managedOutput: managed && localFile(output), stagedOutput, reads: [...new Set(reads)], opaqueReads, streams });
   }
   const allReads = new Map(tasks.flatMap((task, index) => (task.reads ?? []).filter(localFile).map(path => [key(path), index + 1] as const)));
   for (const [index, task] of tasks.entries()) {
@@ -315,7 +316,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   const opaque = tasks.some(task => task.opaqueReads || task.reads?.some(path => !localFile(path)));
   if (opaque && managed) { problem('info', t('部分输入或自定义资源无法完整枚举，覆盖授权已禁用。')); }
   for (const item of unconfirmed) {
-    const spellings = [item.path, filterPath(item.path), filterOptionValue(item.path)];
+    const spellings = [item.path, filterPath(item.path, style), filterOptionValue(item.path)];
     if (tasks.some(task => task.stages.some(stage => stage.args.some(arg => spellings.some(path => arg.includes(path)))))) {
       problem('missing', c.platform !== 'windows' && /^[A-Za-z]:/.test(item.path) ? t('Windows 资源路径需要显式映射：{0}', item.path) : t('请确认预设路径用于当前环境：{0}', item.path), item.field);
     }

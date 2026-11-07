@@ -53,7 +53,7 @@ test('序号预检保持空洞、起始值、前导零和长整数语义', async
       const r = spawnSync(shell, powershell ? ['-NoProfile', '-File', file] : [command], { encoding: 'utf8', timeout: 15000 });
       assert.ifError(r.error);
       assert.equal(r.status, 0, shell + '\n' + r.stderr);
-      const actual = powershell ? JSON.parse(r.stdout) : r.stdout.trim().split(/\r?\n/).map(filename);
+      const actual = powershell ? JSON.parse(r.stdout) : r.stdout.trim().split(/\r?\n/).map(value => filename(value, 'posix'));
       assert.deepEqual(actual, expected, shell + '/' + mode);
     }
   }

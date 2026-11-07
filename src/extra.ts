@@ -1,24 +1,24 @@
 import type { Preset } from './types';
 import type { GraphResult } from './codecs';
 import { audioCodec, videoCodec } from './codecs';
-import { extension, filename, substitute } from './paths';
+import { extension, filename, substitute, type PathStyle } from './paths';
 import { subtitleCodec } from './graph';
 import { add } from './arguments';
 
 const noVideo = new Set('mp3 m4a aac flac wav ogg opus wma mka srt ass ssa vtt sup jpg jpeg jxl png webp bmp gif raw yuv h264 h265 hevc av1 ivf'.split(' '));
 const noAudio = new Set('jpg jpeg jxl png webp bmp gif srt ass ssa vtt sup raw yuv h264 h265 hevc av1 ivf'.split(' '));
-export const containerExtension = (a: Preset, output: string) => (extension(output) || a.输出容器).replace(/^\./, '').trim().toLowerCase();
-function mime(file: string, type: number): string {
+export const containerExtension = (a: Preset, output: string, style: PathStyle = 'windows') => (extension(output, style) || a.输出容器).replace(/^\./, '').trim().toLowerCase();
+function mime(file: string, type: number, style: PathStyle): string {
   const map: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', jxl: 'image/jxl', png: 'image/png', webp: 'image/webp', bmp: 'image/bmp', gif: 'image/gif', ttf: 'application/x-truetype-font', otf: 'application/vnd.ms-opentype', ttc: 'application/x-font-ttf', woff: 'font/woff', woff2: 'font/woff2', txt: 'text/plain', md: 'text/plain', nfo: 'text/plain', json: 'application/json', xml: 'application/xml' };
-  return map[extension(file).slice(1).toLowerCase()] || (type === 5 ? 'text/plain' : 'application/octet-stream');
+  return map[extension(file, style).slice(1).toLowerCase()] || (type === 5 ? 'text/plain' : 'application/octet-stream');
 }
-export function extraOutputs(a: Preset, g: GraphResult, input: string, output: string, sidecars: string[], outputReference = output) {
+export function extraOutputs(a: Preset, g: GraphResult, input: string, output: string, sidecars: string[], outputReference = output, style: PathStyle = 'windows') {
   const inputs: string[] = [], outputs: string[] = [];
   const subtitleInputs = new Set<number>();
-  const ext = containerExtension(a, output), matroska = ['mkv', 'mka', 'mks', 'mk3d'].includes(ext), coverAllowed = matroska || ['mp4', 'm4v', 'm4a', 'mov', '3gp', '3g2'].includes(ext);
+  const ext = containerExtension(a, output, style), matroska = ['mkv', 'mka', 'mks', 'mk3d'].includes(ext), coverAllowed = matroska || ['mp4', 'm4v', 'm4a', 'mov', '3gp', '3g2'].includes(ext);
   const metadataMode = a.流控制_元数据选项;
   if (metadataMode) { add(outputs, '-map_metadata', metadataMode === 2 ? '-1' : '0'); if (metadataMode === 3) { add(outputs, '-movflags', '+use_metadata_tags'); } }
-  for (const item of a.元数据_要写入的信息) { if (item.字段.trim()) { add(outputs, '-metadata', substitute(item.字段.trim() + '=' + item.值, input, outputReference)); } }
+  for (const item of a.元数据_要写入的信息) { if (item.字段.trim()) { add(outputs, '-metadata', substitute(item.字段.trim() + '=' + item.值, input, outputReference, style)); } }
   if (a.流控制_章节选项) { add(outputs, '-map_chapters', a.流控制_章节选项 === 1 ? '0' : '-1'); }
   let inputIndex = 1;
   if (a.章节_来源 && a.章节_文件路径.trim()) {
@@ -33,7 +33,7 @@ export function extraOutputs(a: Preset, g: GraphResult, input: string, output: s
   for (const file of sidecars) {
     subtitleInputs.add(inputIndex);
     add(inputs, '-i', file); outputs.push('-map', `${inputIndex++}:0?`); explicit = true;
-    const codec = subtitleCodec(a.流控制_自动混流的字幕转为MOVTEXT ? 'mov_text' : 'copy', a, output, true);
+    const codec = subtitleCodec(a.流控制_自动混流的字幕转为MOVTEXT ? 'mov_text' : 'copy', a, output, true, style);
     if (codec) { if (g.subtitleCount < 0) { add(outputs, '-c:s', codec); } else { subPositions.push(outputs.length); add(outputs, '-c:s:' + (g.subtitleCount + subPositions.length - 1), codec); } }
   }
   let coverIndex = 0, attachmentIndex = 0;
@@ -46,7 +46,7 @@ export function extraOutputs(a: Preset, g: GraphResult, input: string, output: s
       const index = g.videoCount + coverIndex++;
       coverPositions.push(outputs.length); outputs.push(`-c:v:${index}`, 'copy', `-disposition:v:${index}`, 'attached_pic');
     } else if (matroska) {
-      outputs.push('-attach', file, `-metadata:s:t:${attachmentIndex}`, 'mimetype=' + mime(file, item.类型), `-metadata:s:t:${attachmentIndex}`, 'filename=' + (item.类型 === 3 ? 'cover' + extension(file) : filename(file))); attachmentIndex++;
+      outputs.push('-attach', file, `-metadata:s:t:${attachmentIndex}`, 'mimetype=' + mime(file, item.类型, style), `-metadata:s:t:${attachmentIndex}`, 'filename=' + (item.类型 === 3 ? 'cover' + extension(file, style) : filename(file, style))); attachmentIndex++;
     }
   }
   if (explicit && !g.maps.length) {

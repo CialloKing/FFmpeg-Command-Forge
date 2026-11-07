@@ -1,4 +1,4 @@
-import { extension, pathKey, splitTrailingSerial, withoutExtension } from './paths';
+import { extension, pathKey, pathStyle, splitTrailingSerial, withoutExtension, type PathStyle } from './paths';
 import { incrementalNaming, localFile } from './plan';
 import type { CommandPlan, PlannedTask } from './types';
 import type { Translate } from './i18n';
@@ -9,11 +9,11 @@ export const posixQuote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 // .NET file APIs use the process directory rather than PowerShell's current location.
 export const psPath = (expression: string) => `$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(${expression})`;
 
-function serial(task: PlannedTask) {
-  const path = withoutExtension(task.output);
-  if (task.naming < 11) { return { base: path.replace(/~\d+$/, '') + '~', digits: '1', ext: extension(task.output) }; }
+function serial(task: PlannedTask, style: PathStyle) {
+  const path = withoutExtension(task.output, style);
+  if (task.naming < 11) { return { base: path.replace(/~\d+$/, '') + '~', digits: '1', ext: extension(task.output, style) }; }
   const { base, digits } = splitTrailingSerial(path);
-  return { base, digits: (digits || '1').padStart(task.naming === 11 ? 2 : 3, '0'), ext: extension(task.output) };
+  return { base, digits: (digits || '1').padStart(task.naming === 11 ? 2 : 3, '0'), ext: extension(task.output, style) };
 }
 
 function batchPaths(plan: CommandPlan) {
@@ -79,7 +79,7 @@ export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
   for (const { task, index } of [...outputs.filter(x => !incrementalNaming(x.task.naming)), ...outputs.filter(x => incrementalNaming(x.task.naming))]) {
     lines.push(`$p = [IO.Path]::GetFullPath(${psPath(psQuote(task.output))})`);
     if (incrementalNaming(task.naming)) {
-      const { base, digits, ext } = serial(task);
+      const { base, digits, ext } = serial(task, pathStyle(plan.context.platform));
       const numbered = task.naming >= 11;
       const value = numbered ? `[bigint]${psQuote(digits)}` : '1';
       const format = numbered ? `$forgeNumber.ToString(${psQuote('0'.repeat(digits.length))})` : '$forgeNumber.ToString()';
@@ -199,7 +199,7 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
     const resolve = `forge_key "$forge_target" ${parentSlot(task.output)}`;
     lines.push(`forge_target=${posixQuote(task.output)}`, resolve);
     if (incrementalNaming(task.naming)) {
-      const { base, digits, ext } = serial(task);
+      const { base, digits, ext } = serial(task, 'posix');
       const numbered = task.naming >= 11;
       const key = JSON.stringify([base, ext]);
       const next = series.get(key) ?? `forge_next_${series.size}`;

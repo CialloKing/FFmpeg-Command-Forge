@@ -16,7 +16,7 @@ test('POSIX 原生参数及实际转码', { skip: process.platform === 'win32' }
   for (const shell of shells) {
     const stage = { executable: process.execPath, args: ['-e', 'console.log(JSON.stringify(process.argv.slice(1)))', '--', ...values], name: '', kind: 'single' as const, taskId: 'native', graph: '', maps: [] };
     assert.deepEqual(JSON.parse(run(shell, ['-c', renderCommand(stage, shell)])), values);
-    const input = path.join(dir, `${shell} input.mp4`); run('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=10', '-t', '1', '-c:v', 'libx264', input]);
+    const input = path.join(dir, `${shell} input\\中文 '引号.mp4`); run('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=10', '-t', '1', '-c:v', 'libx264', input]);
     const c = defaultContext(); c.platform = process.platform === 'darwin' ? 'macos' : 'linux'; c.shell = shell;
     c.cwd = dir; c.inputs = [{ id: shell, path: path.basename(input) }]; c.outputDirectory = 'render';
     const occupied = path.join(dir, 'render', `${shell} clip20261106192344999.mkv`), output = path.join(dir, 'render', `${shell} clip20261106192345000.mkv`);
@@ -41,6 +41,17 @@ test('POSIX 原生参数及实际转码', { skip: process.platform === 'win32' }
     const denied = spawnSync(shell, ['-c', renderPlan(await buildPlan(copy, c, undefined, true)).script], { encoding: 'utf8', timeout: 15000 });
     assert.ifError(denied.error);
     assert.notEqual(denied.status, 0);
+    assert.deepEqual(readFileSync(input), original);
+    delete c.inputs[0].output;
+    c.inputs[0].subtitle = input.slice(0, -4) + '.srt';
+    writeFileSync(c.inputs[0].subtitle, '1\n00:00:00,000 --> 00:00:01,000\n中文 subtitle\n');
+    c.outputDirectory = 'special';
+    const burn = await buildPlan(importPreset({ 输出容器: 'mkv', 输出_自动命名选项: 0, 视频参数_编码器_具体编码: 'libx264', 视频参数_烧录字幕_滤镜选择: 1, 视频参数_烧录字幕_字幕来源是外部文件: 1, 元数据_要写入的信息: [{ 字段: 'title', 值: '<InputFileName>' }] }), c);
+    assert.equal(burn.status, 'ready', JSON.stringify(burn.issues));
+    assert.equal(burn.tasks[0].output, path.join(dir, 'special', path.basename(input, '.mp4') + '.mkv'));
+    run(shell, ['-c', renderPlan(burn).script]);
+    const burned = JSON.parse(run('ffprobe', ['-v', 'error', '-show_format', '-of', 'json', burn.tasks[0].output]));
+    assert.equal(burned.format.tags.title, path.basename(input));
     assert.deepEqual(readFileSync(input), original);
   }
 });

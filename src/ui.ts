@@ -5,7 +5,7 @@ import { blankValue, clone, data, exportPreset, groupFor, groups, importPreset, 
 import { associatedProbe, buildPlan, defaultContext, resolvedInput } from './plan';
 import { renderCommand, renderPlan } from './render';
 import { normalizeOrder, subtitleCandidates } from './filters';
-import { filename, isPresetPathField } from './paths';
+import { filename, isPresetPathField, pathStyle } from './paths';
 import { isProbeData, parseWorkspace } from './workspace';
 import { detectLocale, optionLabel, parameterLabel, presetText, translator, type Locale } from './i18n';
 import type { CommandPlan, ExecutionContext, InputTask, Preset, PresetDocument, RenderedPlan, Schema, Shell } from './types';
@@ -399,9 +399,9 @@ function environment(): HTMLElement {
     block.append(probeDetail);
     const a = doc.normalized;
     if (a.视频参数_烧录字幕_滤镜选择 && a.视频参数_烧录字幕_字幕来源是外部文件 === 1) {
-      const input = textInput(task.subtitle || '', v => { task.subtitle = v; schedule(); }, t('实际字幕路径')); const candidates = subtitleCandidates(a, task.path.trim());
+      const input = textInput(task.subtitle || '', v => { task.subtitle = v; schedule(); }, t('实际字幕路径')); const candidates = subtitleCandidates(a, task.path.trim(), pathStyle(context.platform));
       block.append(labeled(t('本次烧录的外部字幕'), input, t('候选：{0}', candidates.join(' · '))));
-      const candidateButtons = el('div', 'row wrap'); candidates.forEach(p => candidateButtons.append(button(filename(p), () => { task.subtitle = p; schedule(); renderEditor(); }, 'small'))); block.append(candidateButtons);
+      const candidateButtons = el('div', 'row wrap'); candidates.forEach(p => candidateButtons.append(button(filename(p, pathStyle(context.platform)), () => { task.subtitle = p; schedule(); renderEditor(); }, 'small'))); block.append(candidateButtons);
     }
     if (['SRT', 'ASS', 'SSA'].some(k => a['流控制_自动混流' + k])) {
       const input = el('textarea', 'mono'); input.value = (task.sidecars || []).join('\n'); input.placeholder = t('每行一个已确认存在的同名字幕路径，可留空'); input.onchange = () => { task.sidecars = input.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean); task.sidecarsConfirmed = false; schedule(); };
@@ -646,7 +646,7 @@ function bindApp(): void {
     if (!currentPlan || !currentRendered) { return; }
     const files: Record<string, Uint8Array> = { 'preset-v6.json': strToU8(exportPreset(doc)), 'README.txt': strToU8(['FFmpeg Command Forge', t('终端：{0}', t(labels[context.shell])), t('先检查脚本，然后在所选终端运行。输入媒体不包含在任务包内。'), ...(context.shell === 'cmd' ? [t('解压整个任务包后运行 forge-task.cmd。启动器需要同目录的 forge-task.ps1。')] : []), t('模板副本位于 resources，完整脚本会准备所需的临时文件。'), '', ''].join('\n') + currentPlan.tasks.map(t => `${t.input}\n=> ${t.output}`).join('\n\n')) };
     for (const { name, content } of currentRendered.bundleScripts) { files[name] = strToU8(content); }
-    currentRendered.assets.forEach((asset, i) => { files['resources/' + String(i + 1).padStart(3, '0') + '-' + filename(asset.path)] = strToU8(asset.content); });
+    currentRendered.assets.forEach((asset, i) => { files['resources/' + String(i + 1).padStart(3, '0') + '-' + filename(asset.path, pathStyle(context.platform)).replaceAll('\\', '_')] = strToU8(asset.content); });
     save(zipSync(files), 'Forge-task.zip', 'application/zip');
   };
 }

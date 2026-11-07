@@ -1,7 +1,7 @@
 import type { Preset, ProbeData, StreamSummary, StreamType } from './types';
 import { audioCodec, audioExtra, videoCodec, videoExtra, type GraphResult } from './codecs';
 import { filterFragment } from './filters';
-import { formatSeconds, seconds, substitute, extension } from './paths';
+import { formatSeconds, seconds, substitute, extension, type PathStyle } from './paths';
 
 export function streamList(values: string[], type: string): string[] { return [...new Set(values.flatMap(v => v.split(',')).map(v => v.trim()).filter(Boolean).map(v => v.includes(':') ? v : `0:${type}:${v}`))]; }
 export const optionalMap = (s: string) => s.replace(/\?+$/, '') + '?';
@@ -48,8 +48,8 @@ export function summarizeStreams(args: string[], unknown: boolean, subtitleInput
   return { v: status('v'), a: status('a'), s: status('s'), fallback, sourceAudio };
 }
 
-export function subtitleCodec(codec: string, a: Preset, output: string, auto = false): string {
-  const ext = (extension(output) || a.输出容器).replace(/^\./, '').toLowerCase();
+export function subtitleCodec(codec: string, a: Preset, output: string, auto = false, style: PathStyle = 'windows'): string {
+  const ext = (extension(output, style) || a.输出容器).replace(/^\./, '').toLowerCase();
   if (['mp4', 'mov', 'm4v', 'm4a', '3gp', '3g2', 'mj2'].includes(ext)) { return codec === 'copy' && !auto ? codec : codec ? 'mov_text' : ''; }
   if (ext === 'webm') { return codec === 'copy' && !auto ? codec : codec ? 'webvtt' : ''; }
   if (['mkv', 'mka', 'mks'].includes(ext) && codec.toLowerCase() === 'mov_text') { return 'copy'; }
@@ -81,7 +81,7 @@ function trimFilter(a: Preset, audio: boolean): string {
   if (a.剪辑区间_方法 === 6) { const expression = start && end ? `not(between(t,${start},${end}))` : start ? `lt(t,${start})` : `gt(t,${end})`; return audio ? `aselect='${expression}',asetpts=N/SR/TB` : `select='${expression}',setpts=N/FRAME_RATE/TB`; }
   return `${audio ? 'atrim' : 'trim'}=${[start ? 'start=' + start : '', end ? 'end=' + end : ''].filter(Boolean).join(':')},${audio ? 'asetpts' : 'setpts'}=PTS-STARTPTS`;
 }
-export function buildGraph(a: Preset, input: string, output: string, firstPass = false, external?: string, outputReference = output): GraphResult {
+export function buildGraph(a: Preset, input: string, output: string, firstPass = false, external?: string, outputReference = output, style: PathStyle = 'windows'): GraphResult {
   const graph: string[] = [], maps: string[][] = [], kept: string[][] = [], outputFilters: string[][] = [];
   const r: GraphResult = { graph: '', maps: [], outputFilters: [], video: [], audio: [], videoCount: 0, audioCount: 0, subtitleCount: 0, requestVideo: false, requestAudio: false, videoFiltered: false, audioFiltered: false };
   const linear = (chain: string[], from: string, out: string, prefix: string) => { let current = from; chain.forEach((f, i) => { const next = i === chain.length - 1 ? out : prefix + 'step' + i; graph.push(`[${current}]${f}[${next}]`); current = next; }); };
@@ -99,7 +99,7 @@ export function buildGraph(a: Preset, input: string, output: string, firstPass =
     if (type === 'a' && firstPass) { continue; }
     const isAudio = type === 'a', label = isAudio ? '音频' : '视频', codec = isAudio ? audioCodec(a) : videoCodec(a), extra = isAudio ? audioExtra(a) : videoExtra(a);
     const streams = streamList(a[`流控制_将${label}参数应用于指定流`], type);
-    const chain: string[] = a.滤镜排序系统.filter((x: Preset) => x.滤镜目标流类型 === (isAudio ? 2 : 1)).map((x: Preset) => clean(x.是自定义滤镜 || [101, 102].includes(x.滤镜标识符) ? substitute(x.自定义滤镜内容, input, outputReference) : filterFragment(a, x.滤镜标识符, input, outputReference, external))).filter(Boolean);
+    const chain: string[] = a.滤镜排序系统.filter((x: Preset) => x.滤镜目标流类型 === (isAudio ? 2 : 1)).map((x: Preset) => clean(x.是自定义滤镜 || [101, 102].includes(x.滤镜标识符) ? substitute(x.自定义滤镜内容, input, outputReference, style) : filterFragment(a, x.滤镜标识符, input, outputReference, external, style))).filter(Boolean);
     const trim = !isAudio || streams.length || chain.length || a.音频参数_编码器_代号 ? trimFilter(a, isAudio) : '';
     if (trim) { chain.unshift(trim); }
     if (!streams.length && (chain.length || a[isAudio ? '音频参数_编码器_代号' : '视频参数_编码器_具体编码'] || extra)) { streams.push(`0:${type}:0`); }
@@ -134,7 +134,7 @@ export function buildGraph(a: Preset, input: string, output: string, firstPass =
     if (!keep) { streams.forEach(s => maps.push(['-map', optionalMap(s)])); }
     maps.push(...kept);
     if (keep) { maps.push(['-map', '0:s?'], ['-c:s', 'copy']); }
-    const codec = subtitleCodec(['', 'copy', 'mov_text', 'srt', 'ass', 'ssa'][a.流控制_如何操作指定的字幕] || '', a, output);
+    const codec = subtitleCodec(['', 'copy', 'mov_text', 'srt', 'ass', 'ssa'][a.流控制_如何操作指定的字幕] || '', a, output, false, style);
     if (codec && streams.length) { if (keep) { for (const s of [...new Set(streams.map(s => selector(s, 's')))]) { maps.push(['-c:' + s, codec]); } } else { maps.push(['-c:s', codec]); } }
     r.subtitleCount = keep ? -1 : streams.length;
   }

@@ -1,5 +1,5 @@
 import type { Preset } from './types';
-import { dirname, extension, filterOptionValue, filterPath, join, stem, substitute } from './paths';
+import { dirname, extension, filterOptionValue, filterPath, join, stem, substitute, type PathStyle } from './paths';
 import { data } from './preset';
 
 export const named = (name: string, values: [string, any][]) => { const opts = values.filter(([, v]) => v !== '' && v !== null && v !== undefined).map(([k, v]) => `${k}=${v}`).join(':'); return opts ? `${name}=${opts}` : name; };
@@ -17,15 +17,15 @@ export function colorFilter(a: Preset): string {
   const values = [matrix, v('色域'), v('传输特性'), colorRange(v('范围')), v('色调映射算法')];
   return values.slice(0, names.length).some(Boolean) ? fromNames(name, names, values) : '';
 }
-export function subtitleCandidates(a: Preset, input: string): string[] {
-  const dir = a.视频参数_烧录字幕_外部字幕文件夹位置 || dirname(input);
-  const name = a.视频参数_烧录字幕_外部字幕文件名 || stem(input);
+export function subtitleCandidates(a: Preset, input: string, style: PathStyle = 'windows'): string[] {
+  const dir = a.视频参数_烧录字幕_外部字幕文件夹位置 || dirname(input, style);
+  const name = a.视频参数_烧录字幕_外部字幕文件名 || stem(input, style);
   const priorities = a.视频参数_烧录字幕_字幕格式优先级.filter((n: number) => n > 0);
-  return [...new Set<number>(priorities.length ? priorities : [1, 2, 3])].map(n => join(dir, name + '.' + ['', 'srt', 'ass', 'ssa'][n]));
+  return [...new Set<number>(priorities.length ? priorities : [1, 2, 3])].map(n => join(dir, name + '.' + ['', 'srt', 'ass', 'ssa'][n], style));
 }
-function subtitle(a: Preset, input: string, output: string, external?: string): string {
+function subtitle(a: Preset, input: string, output: string, external?: string, style: PathStyle = 'windows'): string {
   const p = '视频参数_烧录字幕_'; const v = (k: string): any => a[p + k];
-  if (v('自己写滤镜取代所有设置')) { return substitute(v('自己写滤镜取代所有设置'), input, output); }
+  if (v('自己写滤镜取代所有设置')) { return substitute(v('自己写滤镜取代所有设置'), input, output, style); }
   if (!v('滤镜选择')) { return ''; }
   const inner = v('字幕来源是外部文件') === 2;
   const file = inner ? input : external;
@@ -33,8 +33,8 @@ function subtitle(a: Preset, input: string, output: string, external?: string): 
   const opts: [string, string][] = [['filename', filterOptionValue(file)]];
   if (inner) { opts.push(['stream_index', v('指定内嵌的流')]); }
   if (v('字体文件夹')) { opts.push(['fontsdir', filterOptionValue(v('字体文件夹'))]); }
-  const style: string[] = [];
-  const push = (name: string, value: any) => { if (value !== '' && value !== 0 && value !== undefined) { style.push(name + '=' + value); } };
+  const styleValues: string[] = [];
+  const push = (name: string, value: any) => { if (value !== '' && value !== 0 && value !== undefined) { styleValues.push(name + '=' + value); } };
   push('FontName', v('基本样式_名称')); push('FontSize', v('基本样式_大小'));
   for (const [name, key] of [['Bold', '粗体'], ['Italic', '斜体'], ['Underline', '下划线'], ['StrikeOut', '删除线']]) { if (v('基本样式_' + key)) { push(name, -1); } }
   if (v('边框样式')) { push('BorderStyle', v('边框样式') === 1 ? 1 : 3); }
@@ -43,13 +43,13 @@ function subtitle(a: Preset, input: string, output: string, external?: string): 
     const c = v(key); if (c && (c.已设置 || c.A !== 255 || c.R !== 0 || c.G !== 0 || c.B !== 0)) { push(name, '&H' + ['A', 'B', 'G', 'R'].map(k => Math.max(0, Math.min(255, c[k])).toString(16).padStart(2, '0').toUpperCase()).join('')); }
   }
   for (const [name, key] of [['Alignment', '对齐方位'], ['MarginV', '垂直边距'], ['MarginL', '左边距'], ['MarginR', '右边距'], ['Spacing', '字距'], ['LineSpacing', '行距']]) { push(name, v(key)); }
-  if (v('补充样式')) { style.push(v('补充样式')); }
-  if (style.length) { opts.push(['force_style', filterOptionValue(style.join(','))]); }
-  const name = v('滤镜选择') === 2 && !inner && !style.length && ['.ass', '.ssa'].includes(extension(file).toLowerCase()) ? 'ass' : 'subtitles';
+  if (v('补充样式')) { styleValues.push(v('补充样式')); }
+  if (styleValues.length) { opts.push(['force_style', filterOptionValue(styleValues.join(','))]); }
+  const name = v('滤镜选择') === 2 && !inner && !styleValues.length && ['.ass', '.ssa'].includes(extension(file, style).toLowerCase()) ? 'ass' : 'subtitles';
   return named(name, opts);
 }
 const interpolationNames: Record<string, string> = { '两帧加权平均': 'blend', '运动补偿插值': 'mci', '双向运动估计': 'bidir', '双侧运动估计': 'bilat', '穷举搜索': 'esa', '三步搜索': 'tss', '二维对数搜索': 'tdls', '新三步搜索': 'ntss', '四步搜索': 'fss', '菱形搜索': 'ds', '基于 Hexagon': 'hexbs', '增强的预测区域': 'epzs', '不均匀多六边形': 'umh', '重叠块运动补偿': 'obmc', '加权 obmc': 'aobmc' };
-export function filterFragment(a: Preset, id: number, input = '<输入文件>', output = '<输出文件>', external?: string): string {
+export function filterFragment(a: Preset, id: number, input = '<输入文件>', output = '<输出文件>', external?: string, style: PathStyle = 'windows'): string {
   const v = (k: string): any => a['视频参数_' + k];
   switch (id) {
     case 1: return v('分辨率_裁剪滤镜参数').trim() ? 'crop=' + v('分辨率_裁剪滤镜参数').trim() : '';
@@ -74,7 +74,7 @@ export function filterFragment(a: Preset, id: number, input = '<输入文件>', 
     case 18: return v('NV_FRUC_目标帧率').trim() ? named('fruc_vulkan', [['fps', v('NV_FRUC_目标帧率').trim()], ['perf', ['slow', 'medium', 'fast'].includes(v('NV_FRUC_质量和速度').trim().toLowerCase()) ? v('NV_FRUC_质量和速度').trim().toLowerCase() : ''], ['grid', ['auto', '1', '2', '4', '8'].includes(v('NV_FRUC_网格大小').trim().toLowerCase()) ? v('NV_FRUC_网格大小').trim().toLowerCase() : '']]) : '';
     case 5: return v('动态模糊_连续混合帧数') ? named('tmix', [['frames', v('动态模糊_连续混合帧数')], ['weights', v('动态模糊_每帧权重')], ['scale', v('动态模糊_输出缩放系数')], ['planes', v('动态模糊_处理颜色平面')]]) : '';
     case 6: return (v('超分_滤镜叠加策略组').length ? v('超分_滤镜叠加策略组') : [v('超分_直接面板')]).filter(Boolean).map((s: Preset) => {
-      const pairs: [string, string][] = [['w', s.目标宽度], ['h', s.目标高度], ['upscaler', s.上采样算法], ['downscaler', s.下采样算法], ['antiringing', s.抗振铃强度], ['custom_shader_path', s.着色器文件路径 ? `'${filterPath(s.着色器文件路径).replaceAll("'", "\\'")}'` : '']];
+      const pairs: [string, string][] = [['w', s.目标宽度], ['h', s.目标高度], ['upscaler', s.上采样算法], ['downscaler', s.下采样算法], ['antiringing', s.抗振铃强度], ['custom_shader_path', s.着色器文件路径 ? `'${filterPath(s.着色器文件路径, style).replaceAll("'", "\\'")}'` : '']];
       return pairs.some(([, x]) => x) ? named('libplacebo', pairs) : '';
     }).filter(Boolean).join(',');
     case 7: {
@@ -96,7 +96,7 @@ export function filterFragment(a: Preset, id: number, input = '<输入文件>', 
     }
     case 11: return ['', 'yadif=mode=send_frame:parity=auto:deint=all', 'yadif=mode=send_frame:parity=tff:deint=all', 'yadif=mode=send_frame:parity=bff:deint=all', 'tinterlace=mode=interleave_top', 'tinterlace=mode=interleave_bottom', 'fieldmatch,yadif=deint=interlaced,decimate', 'yadif=mode=send_field:parity=auto:deint=all', 'pullup=jl=1:jr=1,fps=25', 'yadif=mode=send_frame:parity=auto:deint=all', 'yadif=mode=send_field:parity=auto:deint=all', 'bwdif=mode=send_frame:parity=auto:deint=all', 'bwdif=mode=send_field:parity=auto:deint=all', 'yadif_cuda=mode=send_frame:parity=auto:deint=all', 'bwdif_cuda=mode=send_frame:parity=auto:deint=all'][v('处理扫描方式')] || '';
     case 12: { const n = v('画面翻转_角度翻转'); const list: string[] = Array.from({ length: n ? ((n - 1) % 3) + 1 : 0 }, () => n <= 3 ? 'transpose=1' : 'transpose=2'); if (v('画面翻转_镜像翻转')) { list.push(v('画面翻转_镜像翻转') === 1 ? 'hflip' : 'vflip'); } return list.join(','); }
-    case 13: return subtitle(a, input, output, external || (input.startsWith('<') ? '<字幕文件 | 预览模式专用字符>' : undefined));
+    case 13: return subtitle(a, input, output, external || (input.startsWith('<') ? '<字幕文件 | 预览模式专用字符>' : undefined), style);
     case 14: return colorFilter(a);
     case 15: { const pairs = [['brightness', '亮度'], ['contrast', '对比度'], ['saturation', '饱和度'], ['gamma', '伽马']].map(([name, k]) => [name, v('色彩管理_启用调整' + k) ? v('色彩管理_' + k) : ''] as [string, string]); return pairs.some(([, x]) => x) ? named('eq', pairs) : ''; }
     case 16: return v('色彩管理_像素格式预先转换').trim() ? 'format=' + v('色彩管理_像素格式预先转换').trim() : '';
