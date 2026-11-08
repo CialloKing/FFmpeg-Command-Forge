@@ -10,7 +10,7 @@ const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1
 const page = await context.newPage(), errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const key = 'ffmpeg-command-forge.workspace.v1';
-const saved = () => page.evaluate(key => JSON.parse(localStorage.getItem(key)), key);
+const saved = () => page.evaluate(key => { const value = JSON.parse(localStorage.getItem(key)); return value?.workspace ?? value; }, key);
 async function upload(button, value, name = 'preset.json') {
   const chooser = page.waitForEvent('filechooser');
   await button.click();

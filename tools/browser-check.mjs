@@ -112,7 +112,7 @@ assert.equal(await overwrite.isChecked(), false);
 await page.setViewportSize({ width: 1536, height: 1000 });
 assert.equal(await page.locator('#more').isVisible(), false);
 const workspaceKey = 'ffmpeg-command-forge.workspace.v1';
-const savedWorkspace = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), workspaceKey);
+const savedWorkspace = await page.evaluate(key => { const value = JSON.parse(localStorage.getItem(key)); return value?.workspace ?? value; }, workspaceKey);
 const malformedWorkspace = structuredClone(savedWorkspace);
 malformedWorkspace.context.inputs[0].sidecars = 'subtitle.srt';
 await page.getByRole('button', { name: '工作区', exact: true }).click();
@@ -360,3 +360,4 @@ await browser.close();
 console.log(`${channel ? 'Edge' : 'Chromium'} 本地文件离线验收通过：中英文界面、覆盖授权、输出流、预设与工作区、脚本与 ZIP 下载、复制降级、参数搜索和移动布局。`);
 
 await import('./browser-editor-check.mjs');
+await import('./browser-reliability-check.mjs');

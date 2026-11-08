@@ -281,5 +281,10 @@
   "撤销：{0}": "Undo: {0}",
   "替换预设": "Replace preset",
   "删除输入任务": "Remove input",
-  "已撤销，覆盖输出授权已关闭": "Undone; output overwrite permission is disabled"
+  "已撤销，覆盖输出授权已关闭": "Undone; output overwrite permission is disabled",
+  "其他页面已保存，自动保存已暂停": "Another page saved changes. Automatic saving is paused.",
+  "加载浏览器最新版": "Load latest browser copy",
+  "用本页内容替换": "Replace with this page",
+  "下载本页工作区": "Download this workspace",
+  "无法协调共享缓存，已使用标签页草稿": "Shared saving is unavailable. A draft is kept in this tab."
 }

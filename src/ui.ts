@@ -133,6 +133,13 @@ function renderCacheStatus(): void {
   if (!dirty && !result) { return; }
   if (result === 'saved') { panel.append(el('small', '', state.mappingErrors.length ? t('草稿已保存，路径映射仍需修正') : t('已保存到浏览器'))); return; }
   if (!result) { panel.append(el('small', '', t('修改等待保存'))); return; }
+  if (result === 'conflict') {
+    panel.append(el('strong', '', t('其他页面已保存，自动保存已暂停')),
+      button(t('加载浏览器最新版'), () => persistence.loadLatest(text => { loadWorkspace(text, true); renderEditor(); renderNav(); schedule(false); }), 'small'),
+      button(t('用本页内容替换'), () => void persistence.overwrite(), 'small'), button(t('下载本页工作区'), downloadWorkspace, 'small'));
+    return;
+  }
+  if (result === 'session') { panel.append(el('small', '', t('无法协调共享缓存，已使用标签页草稿')), button(t('下载工作区'), downloadWorkspace, 'small')); return; }
   const reasons = { quota: '浏览器缓存容量不足。', blocked: '浏览器阻止了本地存储。', failed: '浏览器缓存写入失败。' };
   panel.append(el('strong', '', t('当前修改尚未保存')), el('small', '', t(reasons[result])),
     button(t('下载工作区'), downloadWorkspace, 'small'));
@@ -143,8 +150,8 @@ function loadWorkspace(text: string, undoable = false): void {
   document.documentElement.dataset.theme = state.theme;
 }
 try {
-  const text = localStorage.getItem(cacheKey);
-  if (text) { loadWorkspace(text); persistence.restored(); if (JSON.parse(text.replace(/^\uFEFF/, '')).version === 1) { persistence.schedule(); persistence.flush(); } }
+  const text = persistence.load();
+  if (text) { loadWorkspace(text); }
 } catch { /* A damaged workspace cache must not prevent a fresh session. */ }
 try {
   const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]');
@@ -531,10 +538,11 @@ function openWorkspaceDialog(): void {
   const error = el('p', 'error-message'); error.setAttribute('role', 'alert'); error.hidden = true;
   box.append(el('p', 'muted', t('工作区包含原生预设、执行环境、已导入的探测结果和模板内容。')),
     button(t('下载工作区'), downloadWorkspace),
-    button(t('导入工作区'), () => pick('.json', (_file, text) => {
+    button(t('导入工作区'), () => pick('.json', async (_file, text) => {
       try { loadWorkspace(text, true); }
       catch (cause) { error.textContent = cause instanceof Error ? cause.message : String(cause); error.hidden = false; return; }
       schedule('immediate'); renderEditor(); renderNav(); dialog.close();
+      await persistence.idle();
       toast(cacheState.result === 'saved' ? t('工作区已恢复') : t('工作区已载入，缓存未保存，请下载工作区。'));
     })), error);
   body.append(box); dialog.showModal();
@@ -576,8 +584,9 @@ function bindApp(): void {
   };
 }
 
-window.addEventListener('pagehide', () => persistence.flush());
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { persistence.flush(); } });
+window.addEventListener('storage', event => { if (event.key === cacheKey || event.key === null) { persistence.observe(event.key === null ? null : event.newValue); } });
+window.addEventListener('pagehide', () => persistence.saveDraft());
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { persistence.saveDraft(); void persistence.flush(); } });
 document.documentElement.dataset.theme = state.theme;
 mountApp();
 void recompute();

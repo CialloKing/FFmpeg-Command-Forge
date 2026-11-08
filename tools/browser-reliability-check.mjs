@@ -1,0 +1,38 @@
+import { chromium } from 'playwright';
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+const browser = await chromium.launch({ channel: process.env.FORGE_BROWSER === 'chromium' ? undefined : 'msedge', headless: true });
+const url = pathToFileURL(path.resolve('FFmpeg Command Forge.html')).href;
+try {
+  const context = await browser.newContext({ locale: 'zh-CN' });
+  await context.route(/^https?:/, route => route.abort());
+  const a = await context.newPage(), b = await context.newPage();
+  await a.goto(url); await b.goto(url);
+  const input = page => page.getByLabel('输入文件 1 路径', { exact: true });
+  await input(a).fill('D:\\Media\\a.mp4');
+  await a.getByText('已保存到浏览器', { exact: true }).waitFor();
+  await b.getByText('其他页面已保存，自动保存已暂停', { exact: true }).waitFor();
+  await input(b).fill('D:\\Media\\b.mp4');
+  await b.reload();
+  assert.equal(await input(b).inputValue(), 'D:\\Media\\b.mp4');
+  await b.getByText('其他页面已保存，自动保存已暂停', { exact: true }).waitFor();
+  await b.getByRole('button', { name: '用本页内容替换', exact: true }).click();
+  await b.getByText('已保存到浏览器', { exact: true }).waitFor();
+  await a.getByRole('button', { name: '加载浏览器最新版', exact: true }).click();
+  assert.equal(await input(a).inputValue(), 'D:\\Media\\b.mp4');
+  await Promise.all([input(a).fill('D:\\Media\\race-a.mp4'), input(b).fill('D:\\Media\\race-b.mp4')]);
+  await Promise.race([a.getByText('其他页面已保存，自动保存已暂停', { exact: true }).waitFor(), b.getByText('其他页面已保存，自动保存已暂停', { exact: true }).waitFor()]);
+  const cached = await a.evaluate(() => JSON.parse(localStorage.getItem('ffmpeg-command-forge.workspace.v1')).workspace.context.inputs[0].path);
+  assert.ok(['D:\\Media\\race-a.mp4', 'D:\\Media\\race-b.mp4'].includes(cached));
+  await context.close();
+  const fallback = await browser.newContext({ locale: 'zh-CN' });
+  await fallback.addInitScript(() => Object.defineProperty(navigator, 'locks', { value: undefined }));
+  const page = await fallback.newPage(); await page.goto(url);
+  await input(page).fill('D:\\Media\\draft.mp4');
+  await page.getByText('无法协调共享缓存，已使用标签页草稿', { exact: true }).waitFor();
+  await page.reload(); assert.equal(await input(page).inputValue(), 'D:\\Media\\draft.mp4');
+  assert.equal(await page.evaluate(() => localStorage.getItem('ffmpeg-command-forge.workspace.v1')), null);
+  await fallback.close();
+  console.log('多页面缓存冲突、并发提交、刷新草稿及无写锁降级通过');
+} finally { await browser.close(); }
