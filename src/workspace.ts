@@ -31,7 +31,7 @@ const platforms: readonly Platform[] = ['windows', 'linux', 'macos'];
 const shells: readonly Shell[] = ['powershell', 'powershell5', 'cmd', 'bash', 'zsh'];
 
 export function parseWorkspace(value: unknown, t: Translate) {
-  if (!object(value) || value.format !== 'ffmpeg-command-forge/workspace' || ![1, 2].includes(Number(value.version)) || typeof value.version !== 'number') {
+  if (!object(value) || value.format !== 'ffmpeg-command-forge/workspace' || ![1, 2, 3].includes(Number(value.version)) || typeof value.version !== 'number') {
     throw new Error(t('工作区格式无效或版本不支持'));
   }
   const invalid = (path: string): never => { throw new Error(t('工作区字段无效：{0}', path)); };
@@ -82,9 +82,10 @@ export function parseWorkspace(value: unknown, t: Translate) {
     confirmedPaths: strings(ctx.confirmedPaths) ? ctx.confirmedPaths : invalid('context.confirmedPaths')
   };
   const doc = importPreset(record(value.preset, 'preset'), t);
+  const baseline = value.version === 3 ? importPreset(record(value.baselinePreset, 'baselinePreset'), t) : importPreset(doc.raw, t);
   const drafts = { pathMappings: value.version === 1 ? pathMappings.map(m => m.from + ' => ' + m.to).join('\n') :
     string(record(value.drafts, 'drafts').pathMappings, 'drafts.pathMappings') };
   const parsed = parseMappingDraft(drafts.pathMappings);
   if (!parsed.invalidLines.length) { context.pathMappings = parsed.mappings; }
-  return { context, doc, drafts, theme: value.theme === 'light' ? 'light' : 'dark' };
+  return { context, doc, baseline, drafts, theme: value.theme === 'light' ? 'light' : 'dark' };
 }

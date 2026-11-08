@@ -292,5 +292,17 @@
   "请先填写有效路径并等待计划完成": "Enter valid paths and wait for the plan to finish.",
   "下载批量探测脚本": "Download batch probe script",
   "导入批量探测结果": "Import batch probe results",
-  "探测结果：成功 {0} 项，失败 {1} 项，过期或不匹配 {2} 项": "Probe results: {0} imported, {1} failed, {2} stale or unmatched"
+  "探测结果：成功 {0} 项，失败 {1} 项，过期或不匹配 {2} 项": "Probe results: {0} imported, {1} failed, {2} stale or unmatched",
+  "编辑预设 JSON": "Edit preset JSON",
+  "参数视图": "Parameter view",
+  "全部参数": "All parameters",
+  "非默认参数": "Non-default parameters",
+  "相对载入预设的修改": "Changes from loaded preset",
+  "恢复默认值": "Restore default",
+  "恢复载入值": "Restore loaded value",
+  "查看变更": "View changes",
+  "预设变更摘要": "Preset changes",
+  "参数有效值没有变化": "Effective parameter values are unchanged.",
+  "当前值": "Current value",
+  "候选值": "Candidate value"
 }

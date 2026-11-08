@@ -8,13 +8,14 @@ import type { ExecutionContext, FieldPath, InputTask, Preset } from './types';
 export function createEditorState(translate: () => Translate) {
   const read = (input?: string | Preset) => importPreset(input, translate());
   let doc = read(), context = defaultContext(), theme = 'dark', allowOverwrite = false;
+  let baseline = read(doc.raw);
   let drafts = { pathMappings: '' }, mappingErrors: number[] = [];
   let revision = 0, importSequence = 0;
-  const checkpoint = () => clone({ preset: doc.raw, context, drafts });
+  const checkpoint = () => clone({ preset: doc.raw, baselinePreset: baseline.raw, context, drafts });
   let undoEntry: { label: string; before: ReturnType<typeof checkpoint> } | undefined;
   const changed = () => { revision++; undoEntry = undefined; allowOverwrite = false; };
   function restoreCheckpoint(before: ReturnType<typeof checkpoint>): void {
-    doc = read(before.preset); context = before.context; drafts = before.drafts;
+    doc = read(before.preset); baseline = read(before.baselinePreset); context = before.context; drafts = before.drafts;
     mappingErrors = parseMappingDraft(drafts.pathMappings).invalidLines;
   }
   function updatePreset(update: (raw: Preset) => void): void {
@@ -24,6 +25,7 @@ export function createEditorState(translate: () => Translate) {
   }
   return {
     get doc() { return doc; },
+    get baseline() { return baseline; },
     get context() { return context; },
     get theme() { return theme; },
     get allowOverwrite() { return allowOverwrite; },
@@ -55,7 +57,20 @@ export function createEditorState(translate: () => Translate) {
       changed();
     },
     updatePreset,
-    replacePreset(input?: string | Preset) { doc = read(input); allowOverwrite = false; changed(); },
+    replacePreset(input?: string | Preset) { const next = read(input); baseline = read(next.raw); doc = next; changed(); },
+    editPresetJson(text: string) { const next = read(text); if (JSON.stringify(next.raw) !== JSON.stringify(doc.raw)) { doc = next; changed(); } },
+    resetField(path: FieldPath, defaults: boolean) {
+      const source = defaults ? read().raw : baseline.raw;
+      const value = path.reduce<any>((value, key) => value?.[key], source);
+      updatePreset(raw => {
+        let target = raw;
+        for (const key of path.slice(0, -1)) {
+          if (!target[key] || typeof target[key] !== 'object') { if (value === undefined) { return; } target[key] = {}; }
+          target = target[key];
+        }
+        if (value === undefined) { delete target[path.at(-1)!]; } else { target[path.at(-1)!] = clone(value); }
+      });
+    },
     editPreset(path: FieldPath, value: unknown) {
       updatePreset(raw => {
         let target = raw;
@@ -85,13 +100,13 @@ export function createEditorState(translate: () => Translate) {
     // 授权不是方案编辑；不能使刚授予的权限或待导入结果立即失效。
     setOverwrite(value: boolean) { allowOverwrite = value; },
     localize() { doc = read(doc.raw); },
-    reset() { doc = read(); context = defaultContext(); drafts = { pathMappings: '' }; mappingErrors = []; allowOverwrite = false; changed(); },
+    reset() { doc = read(); baseline = read(doc.raw); context = defaultContext(); drafts = { pathMappings: '' }; mappingErrors = []; allowOverwrite = false; changed(); },
     restore(text: string) {
       // 完整验证成功后才替换工作区，失败时保留当前编辑内容。
       const workspace = parseWorkspace(JSON.parse(text.replace(/^\uFEFF/, '')), translate());
-      doc = workspace.doc; context = workspace.context; theme = workspace.theme; drafts = workspace.drafts;
+      doc = workspace.doc; baseline = workspace.baseline; context = workspace.context; theme = workspace.theme; drafts = workspace.drafts;
       mappingErrors = parseMappingDraft(drafts.pathMappings).invalidLines; allowOverwrite = false; changed();
     },
-    snapshot() { return { format: 'ffmpeg-command-forge/workspace', version: 2, preset: doc.raw, context, drafts, theme }; }
+    snapshot() { return { format: 'ffmpeg-command-forge/workspace', version: 3, preset: doc.raw, baselinePreset: baseline.raw, context, drafts, theme }; }
   };
 }

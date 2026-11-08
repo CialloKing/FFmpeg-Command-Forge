@@ -1,12 +1,16 @@
-import { blankValue, clone, data, effectiveValue, matchesFieldShape, matchesFieldType, schema } from './preset';
+import { blankValue, clone, data, effectiveValue, importPreset, matchesFieldShape, matchesFieldType, schema } from './preset';
 import { normalizeOrder } from './filters';
 import { optionLabel, parameterLabel, type Locale, type Translate } from './i18n';
 import { presetTarget } from './diagnostics';
+import { sameField } from './differences';
 import { button, createControls, el, issueTarget, labeled, textInput, type Choice } from './controls';
 import type { FieldPath, Preset, PresetDocument, Schema } from './types';
+const defaults = importPreset();
 
 interface ParameterEditorOptions {
   readDocument(): PresetDocument;
+  readBaseline(): PresetDocument;
+  resetField(path: FieldPath, defaults: boolean): void;
   readLocale(): Locale;
   translate: Translate;
   edit(path: FieldPath, value: unknown): void;
@@ -29,8 +33,22 @@ export function createParameterEditor(options: ParameterEditorOptions) {
   ];
   const fieldHint = (key: string) => t(parameterHints[key] || familyHints.find(([prefix]) => key.startsWith(prefix))?.[1] || '');
   function parameterField(key: string, spec: Schema, value: any, path: FieldPath): HTMLElement {
-    return issueTarget(renderParameterField(key, spec, value, path), presetTarget(path));
+    const field = issueTarget(renderParameterField(key, spec, value, path), presetTarget(path));
+    const actions = el('div', 'row wrap field-reset');
+    actions.dataset.resetPath = JSON.stringify(path); updateResets(actions, path);
+    field.append(actions); return field;
   }
+  function updateResets(actions: HTMLElement, path: FieldPath): void {
+    actions.replaceChildren();
+    if (!sameField(readDocument(), defaults, path)) {
+      actions.append(button(t('恢复默认值'), () => options.resetField(path, true), 'small ghost'));
+    }
+    if (!sameField(readDocument(), options.readBaseline(), path)) {
+      actions.append(button(t('恢复载入值'), () => options.resetField(path, false), 'small ghost'));
+    }
+    actions.hidden = !actions.childElementCount;
+  }
+  const refreshResetControls = () => document.querySelectorAll<HTMLElement>('[data-reset-path]').forEach(node => updateResets(node, JSON.parse(node.dataset.resetPath!)));
   function renderParameterField(key: string, spec: Schema, value: any, path: FieldPath): HTMLElement {
     const label = parameterLabel(readLocale(), key);
     const hint = path.length === 1 ? fieldHint(key) || (readLocale() === 'zh-CN' ? key : '') : '';
@@ -134,5 +152,5 @@ export function createParameterEditor(options: ParameterEditorOptions) {
     return box;
   }
 
-  return { parameterField, filterOrder, fieldHint };
+  return { parameterField, filterOrder, fieldHint, refreshResetControls };
 }

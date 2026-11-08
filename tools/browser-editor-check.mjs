@@ -33,7 +33,7 @@ try {
   for (const id of ['copy-preview', 'copy-final', 'download-script', 'download-zip']) { assert.equal(await page.locator('#' + id).isDisabled(), true); }
   assert.equal(await page.getByRole('button', { name: '复制探测命令', exact: true }).isDisabled(), true);
   const draft = await saved();
-  assert.equal(draft.version, 2);
+  assert.equal(draft.version, 3);
   assert.equal(draft.context.pathMappings[0].to, 'D:\\Source');
   await page.reload();
   assert.equal(await page.getByLabel('显式路径映射', { exact: true }).inputValue(), draft.drafts.pathMappings);

@@ -55,3 +55,5 @@ input,textarea{width:100%;border:1px solid var(--border);border-radius:6px;backg
 
 .header { height:auto; min-height:76px; padding-block:12px; gap:12px; flex-wrap:wrap; }
 .toolbar { flex-wrap:wrap; justify-content:flex-end; }
+.diff-values { white-space:pre-wrap; overflow-wrap:anywhere; max-height:360px; overflow:auto; }
+.field-reset { margin-top:4px; gap:4px; }

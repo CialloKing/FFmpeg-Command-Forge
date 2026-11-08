@@ -4,6 +4,27 @@ import { createEditorState } from '../src/editor-state';
 import { sourceText } from '../src/i18n';
 import { parseMappingDraft } from '../src/workspace';
 import { buildPlan } from '../src/plan';
+import { changedFields } from '../src/differences';
+import { importPreset } from '../src/preset';
+
+test('差异按有效值比较，字段恢复、JSON 编辑、工作区与撤销保留载入基线', () => {
+  const state = createEditorState(() => sourceText);
+  const raw = { 预设文件版本: 6, 视频参数_比特率_控制方式: ' cRf ', 滤镜排序系统: [{ 是自定义滤镜: true, 滤镜标识符: '自定义视频滤镜', 滤镜目标流类型: '视频', 自定义滤镜内容: 'hflip' }] };
+  assert.deepEqual(changedFields(importPreset(raw), importPreset({ ...raw, 视频参数_比特率_控制方式: '1' })), []);
+  state.replacePreset(raw); state.editPreset(['输出容器'], 'mkv');
+  assert.ok(changedFields(state.doc, state.baseline).includes('输出容器'));
+  state.editPresetJson(JSON.stringify({ ...state.doc.raw, 输出容器: 'mp4' }));
+  assert.deepEqual(state.baseline.raw, raw);
+  const snapshot = state.snapshot(); state.reset(); state.restore(JSON.stringify(snapshot));
+  assert.deepEqual(state.baseline.raw, raw);
+  state.resetField(['输出容器'], false);
+  assert.equal(Object.hasOwn(state.doc.raw, '输出容器'), false);
+  state.perform('replace', () => state.replacePreset()); state.undo();
+  assert.deepEqual(state.baseline.raw, raw);
+  const legacy: any = { ...snapshot, version: 2 }; delete legacy.baselinePreset;
+  state.restore(JSON.stringify(legacy));
+  assert.deepEqual(state.baseline.raw, legacy.preset);
+});
 
 test('覆盖授权仅用于当前方案，无变化及失败编辑不撤销授权', async () => {
   const state = createEditorState(() => sourceText);
@@ -41,7 +62,7 @@ test('映射草稿完整应用，v1 迁移和 v2 恢复保留原文及最后有�
   const legacy: any = { ...state.snapshot(), version: 1 }; delete legacy.drafts;
   state.restore(JSON.stringify(legacy));
   assert.equal(state.drafts.pathMappings, 'D:\\Media => /media');
-  assert.equal(state.snapshot().version, 2);
+  assert.equal(state.snapshot().version, 3);
   const current = state.snapshot(); current.drafts = { pathMappings: 'D:\\Media => /new' };
   state.restore(JSON.stringify(current));
   assert.equal(state.context.pathMappings[0].to, '/new');

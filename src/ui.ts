@@ -4,7 +4,8 @@ import { createParameterEditor } from './parameter-editor';
 import { zipSync, strToU8 } from 'fflate';
 import { revision, version as upstreamVersion } from '../docs/upstream.json';
 import ffmpegFull from './data/ffmpeg-full-2026.11.3.json';
-import { blankValue, clone, data, exportPreset, groupFor, groups, schema } from './preset';
+import { blankValue, clone, data, exportPreset, groupFor, groups, importPreset, schema } from './preset';
+import { changedFields } from './differences';
 import { associatedProbe, buildPlan, resolvedInput } from './plan';
 import { renderCommand, renderPlan } from './render';
 import { subtitleCandidates } from './filters';
@@ -30,8 +31,10 @@ let locale = languagePreference ?? browserLocale();
 let t = translator(locale);
 const state = createEditorState(() => t);
 const { choiceInput } = createControls((text, ...values) => t(text, ...values));
-const { parameterField, filterOrder, fieldHint } = createParameterEditor({
+const { parameterField, filterOrder, fieldHint, refreshResetControls } = createParameterEditor({
   readDocument: () => state.doc, readLocale: () => locale, translate: (text, ...values) => t(text, ...values),
+  readBaseline: () => state.baseline,
+  resetField: (path, defaults) => { state.resetField(path, defaults); schedule(); renderEditor(); },
   edit, openTextDialog, renderEditor, importTemplate
 });
 const labels: Record<Shell, string> = { powershell: 'PowerShell 7.3+', powershell5: 'Windows PowerShell 5.1', cmd: 'CMD（延迟展开关闭）', bash: 'Bash', zsh: 'Zsh' };
@@ -41,6 +44,8 @@ const presetFormat = `v${data.defaults.预设文件版本} JSON`;
 const presetHint = () => t('预设兼容基线 {0} · {1}', presetBaseline, presetFormat);
 type PreviewTab = 'commands' | 'stages' | 'graph' | 'args' | 'script';
 let previewTab: PreviewTab = 'commands';
+let parameterView = 'all';
+const defaultPreset = importPreset();
 const taskPageSize = 50;
 let taskPage = 0;
 let selected = '任务与环境', query = '', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
@@ -160,6 +165,7 @@ try {
 } catch { /* Saved presets are independent of workspace recovery. */ }
 function edit(path: FieldPath, value: unknown): void {
   state.editPreset(path, value); schedule();
+  refreshResetControls();
   // 排序面板与字段编辑共享同一预设，立即刷新以免沿用旧的生成 ID 和滤镜内容。
   document.querySelector('#filter-order')?.replaceChildren(filterOrder());
 }
@@ -205,9 +211,10 @@ function renderNav(): void {
 }
 function navigate(name: string): void { selected = name; query = ''; renderEditor(); renderNav(); }
 function openPresetJson(): void {
-  openTextDialog(presetHint(), exportPreset(state.doc), text => { replacePreset(text); schedule('immediate'); renderEditor(); });
+  openTextDialog(presetHint(), exportPreset(state.doc), text => { critical('编辑预设 JSON', () => state.editPresetJson(text)); schedule('immediate'); renderEditor(); });
 }
 function focusIssue(target: IssueTarget): void {
+  parameterView = 'all';
   if (target.taskId && !state.context.inputs.some(task => task.id === target.taskId)) { toast(t('此问题对应的项目已变更，请查看最新诊断。')); return; }
   if (target.scope === 'preset' && !Object.hasOwn(schema.fields!, target.path[0])) { openPresetJson(); return; }
   if (target.taskId) { taskPage = Math.floor(state.context.inputs.findIndex(task => task.id === target.taskId) / taskPageSize); }
@@ -380,7 +387,20 @@ function presetCard(presets: { 名称: string; 数据: Preset }[], label: string
     schedule('immediate');
     toast(t('已应用：{0}', texts[index].name));
   }, 'primary'));
+  card.append(button(t('查看变更'), () => showPresetChanges(presets[index].数据), 'small ghost'));
   return card;
+}
+function showPresetChanges(preset: Preset): void {
+  const next = importPreset(preset, t), keys = changedFields(next, state.doc);
+  const dialog = $<HTMLDialogElement>('#dialog'); $('#dialog-title').textContent = t('预设变更摘要');
+  const body = $('#dialog-body'); body.replaceChildren();
+  if (!keys.length) { body.append(el('p', '', t('参数有效值没有变化'))); }
+  for (const key of keys) {
+    const item = el('details', 'nested'); item.append(el('summary', '', parameterLabel(locale, key)),
+      el('pre', 'mono diff-values', JSON.stringify({ [t('当前值')]: state.doc.normalized[key] ?? state.doc.raw[key], [t('候选值')]: next.normalized[key] ?? next.raw[key] }, null, 2)));
+    body.append(item);
+  }
+  dialog.showModal();
 }
 function presetLibrary(): HTMLElement {
   const content = el('div', 'stack');
@@ -395,7 +415,7 @@ function presetLibrary(): HTMLElement {
   content.append(heading(`ffmpeg-full ${ffmpegFull.version}`, '02'), fullCard, heading(t('我的预设'), '03'));
   const saved = el('div', 'card stack'), name = textInput('', () => {}, t('为当前预设命名'));
   saved.append(row(name, button(t('保存副本'), () => { if (!name.value.trim()) { toast(t('请先填写预设名称')); return; } library.push({ name: name.value.trim(), preset: clone(state.doc.raw) }); persistLibrary(); renderEditor(); }, 'small')));
-  library.forEach((p, i) => { const r = el('div', 'saved-row'); r.append(el('span', 'grow', p.name), button(t('应用'), () => { replacePreset(p.preset); schedule('immediate'); toast(t('已应用：{0}', p.name)); }, 'small'), button(t('导出'), () => save(JSON.stringify(p.preset, null, 2), p.name + '.json', 'application/json'), 'small ghost'), button('×', () => { library.splice(i, 1); persistLibrary(); renderEditor(); }, 'small ghost')); saved.append(r); });
+  library.forEach((p, i) => { const r = el('div', 'saved-row'); r.append(el('span', 'grow', p.name), button(t('查看变更'), () => showPresetChanges(p.preset), 'small ghost'), button(t('应用'), () => { replacePreset(p.preset); schedule('immediate'); toast(t('已应用：{0}', p.name)); }, 'small'), button(t('导出'), () => save(JSON.stringify(p.preset, null, 2), p.name + '.json', 'application/json'), 'small ghost'), button('×', () => { library.splice(i, 1); persistLibrary(); renderEditor(); }, 'small ghost')); saved.append(r); });
   saved.append(el('small', '', t('浏览器副本用于便利恢复。重要预设请下载 JSON 文件保存。'))); content.append(saved, heading(t('原生预设'), '04'), button(t('查看或编辑完整 JSON'), openPresetJson, 'ghost')); return content;
 }
 function persistLibrary(): void { try { localStorage.setItem(libraryKey, JSON.stringify(library)); } catch { toast(t('浏览器存储不可用，请导出 JSON 保存')); } }
@@ -406,11 +426,14 @@ function renderEditor(): void {
   if (selected === '任务与环境') { body.append(environment()); return; }
   if (selected === '预设库') { body.append(presetLibrary()); return; }
   const search = el('div', 'search'); const input = textInput(query, v => { query = v; renderParameterList(); }, t('搜索参数、字段名或 FFmpeg 选项')); input.setAttribute('aria-label', t('搜索全部参数')); search.append(input); head.append(search);
+  head.append(labeled(t('参数视图'), choiceInput([['all', t('全部参数')], ['defaults', t('非默认参数')], ['baseline', t('相对载入预设的修改')]], parameterView, value => { parameterView = value; renderParameterList(); })));
   body.append(el('div', 'stack')); renderParameterList();
 }
 function renderParameterList(): void {
   const body = $('#editor-content'); body.replaceChildren(); const stack = el('div', 'stack');
-  const keys = Object.keys(schema.fields!).filter(k => query ? `${k} ${parameterLabel(locale, k)} ${fieldHint(k)} ${groupFor(k)} ${t(groupFor(k))} ${JSON.stringify(state.doc.raw[k] ?? '')}`.toLowerCase().includes(query.toLowerCase()) : groupFor(k) === selected);
+  const changed = parameterView === 'all' ? undefined : new Set(changedFields(state.doc, parameterView === 'defaults' ? defaultPreset : state.baseline));
+  const invalid = new Set(state.doc.issues.filter(issue => issue.target?.scope === 'preset').map(issue => String(issue.target!.path[0])));
+  const keys = Object.keys(schema.fields!).filter(k => (!changed || changed.has(k) || invalid.has(k)) && (query ? `${k} ${parameterLabel(locale, k)} ${fieldHint(k)} ${groupFor(k)} ${t(groupFor(k))} ${JSON.stringify(state.doc.raw[k] ?? '')}`.toLowerCase().includes(query.toLowerCase()) : groupFor(k) === selected));
   if (!query && selected === '画面') { const order = el('div'); order.id = 'filter-order'; order.append(filterOrder()); stack.append(order); }
   const card = el('div', 'card parameter-fields');
   for (const key of keys) { card.append(parameterField(key, schema.fields![key], state.doc.raw[key] ?? data.defaults[key] ?? blankValue(schema.fields![key]), [key])); }
