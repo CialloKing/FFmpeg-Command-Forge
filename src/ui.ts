@@ -11,6 +11,7 @@ import { subtitleCandidates } from './filters';
 import { filename, isPresetPathField, pathStyle } from './paths';
 import { isProbeData } from './workspace';
 import { createPersistence, type SaveState } from './persistence';
+import { importProbeReport, parseReport, reportScripts, type ReportKind } from './reports';
 import { contextTarget, targetKey } from './diagnostics';
 import { detectLocale, parameterLabel, presetText, translator, type Locale } from './i18n';
 import type { CommandPlan, ExecutionContext, FieldPath, InputTask, IssueTarget, Preset, RenderedPlan, Shell } from './types';
@@ -240,6 +241,26 @@ function refreshTaskCard(id: string): void {
   if (block && index >= 0) { block.replaceWith(taskCard(state.context.inputs[index], index)); }
 }
 function refreshTaskList(): void { document.querySelector('#input-tasks')?.replaceWith(taskList()); }
+function downloadReport(kind: ReportKind): void {
+  if (!currentPlan || state.mappingErrors.length || kind === 'probes' && state.context.inputs.some(task => !task.path.trim())) {
+    toast(t('请先填写有效路径并等待计划完成')); return;
+  }
+  const files = reportScripts(currentPlan, kind, t);
+  if (files.length === 1) { save(files[0].content, files[0].name, 'text/plain;charset=utf-8'); }
+  else { save(zipSync(Object.fromEntries(files.map(file => [file.name, strToU8(file.content)]))), 'Forge-' + kind + '.zip', 'application/zip'); }
+}
+function importBatchProbes(): void {
+  pick('.json', (_file, text) => {
+    const report = parseReport(JSON.parse(text.replace(/^\uFEFF/, '')), 'probes', t);
+    const { updates, failed, skipped } = importProbeReport(report, state.context);
+    if (updates.length) {
+      const probes = new Map(updates.map(update => [update.id, update.probe]));
+      state.updateContext(context => { for (const task of context.inputs) { const probe = probes.get(task.id); if (probe) { task.probe = probe; } } });
+      schedule(); refreshTaskList();
+    }
+    toast(t('探测结果：成功 {0} 项，失败 {1} 项，过期或不匹配 {2} 项', updates.length, failed, skipped));
+  });
+}
 function taskList(): HTMLElement {
   const list = el('div', 'stack'); list.id = 'input-tasks';
   const count = state.context.inputs.length, pages = Math.max(1, Math.ceil(count / taskPageSize));
@@ -324,6 +345,7 @@ function environment(): HTMLElement {
   };
   const addTasks = row(button(t('+ 添加输入'), () => appendPaths([''])), button(t('批量粘贴路径'), () => openTextDialog(t('每行一个输入文件路径'), '', text => appendPaths(text.split(/\r?\n/).map(x => x.trim()).filter(Boolean).map(p => p.replace(/^"(.*)"$/, '$1')), true)), 'ghost'));
   content.append(issueTarget(addTasks, contextTarget(['inputs'])));
+  content.append(row(button(t('下载批量探测脚本'), () => downloadReport('probes'), 'small'), button(t('导入批量探测结果'), importBatchProbes, 'small')));
   content.append(heading(t('预设路径与资源'), '03'));
   const mappingCard = el('div', 'card stack'), mappings = el('textarea', 'mono'); mappings.value = state.drafts.pathMappings; mappings.placeholder = t('例如 {0}', 'D:\\Media => /Volumes/Media');
   const mappingError = el('p', 'error-message'); mappingError.setAttribute('role', 'status');

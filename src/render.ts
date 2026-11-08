@@ -189,7 +189,7 @@ export function renderPlan(plan: CommandPlan, t: Translate = sourceText): Render
 }
 
 const powershellFile = (script: string): ScriptFile => ({ name: 'forge-task.ps1', content: '\uFEFF' + script });
-function cmdBatch(command: string): string {
+export function cmdBatch(command: string): string {
   return '@echo off\r\nsetlocal DisableDelayedExpansion\r\nfor /f "tokens=2 delims=:" %%C in (\'chcp\') do set "forge_old_cp=%%C"\r\nchcp 65001 >nul\r\n' + command + '\r\nset "forge_exit=%errorlevel%"\r\nchcp %forge_old_cp% >nul\r\nexit /b %forge_exit%\r\n';
 }
 
