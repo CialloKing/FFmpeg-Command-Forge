@@ -2,6 +2,23 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPersistence, type SaveState } from '../src/persistence';
 
+test('损坏的标签页草稿回退到有效共享副本且不触发覆盖补存', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const shared = JSON.stringify({ format: 'ffmpeg-command-forge/cache', version: 1, revision: 'saved', workspace: { value: 'keep' } });
+  let writes = 0, restored = '', state: SaveState = { dirty: false };
+  const storage = { getItem: () => shared, setItem: () => { writes++; } } as unknown as Storage;
+  const session = { getItem: () => JSON.stringify({ base: 'saved', workspace: { broken: true } }) } as unknown as Storage;
+  const cache = createPersistence('test', () => ({ value: 'fresh' }), value => { state = value; }, { storage, session, lock: async work => work() });
+  cache.load(text => {
+    const workspace = JSON.parse(text);
+    if (typeof workspace.value !== 'string') { throw new Error('Invalid workspace'); }
+    restored = workspace.value;
+  });
+  t.mock.timers.tick(2000); await cache.idle();
+  assert.equal(restored, 'keep'); assert.equal(writes, 0);
+  assert.deepEqual(state, { dirty: false, result: 'saved' });
+});
+
 test('缓存合并连续编辑，按时补存并保留失败状态', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');

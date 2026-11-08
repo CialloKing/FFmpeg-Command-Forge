@@ -51,6 +51,7 @@ const taskPageSize = 50;
 let taskPage = 0;
 let selected = '任务与环境', query = '', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
 let buildController: AbortController | undefined, archiveBusy = false;
+let toastTimer: ReturnType<typeof setTimeout>;
 let cacheState: SaveState = { dirty: false };
 const persistence = createPersistence(cacheKey, workspaceSnapshot, state => {
   if (state.dirty !== cacheState.dirty || state.result !== cacheState.result) { cacheState = state; renderCacheStatus(); }
@@ -115,7 +116,11 @@ function mountApp(): void {
   renderCacheStatus();
 }
 
-function toast(message: string): void { const t = $('#toast'); t.textContent = message; t.className = 'toast'; t.hidden = false; setTimeout(() => { t.hidden = true; }, 3800); }
+function toast(message: string): void {
+  clearTimeout(toastTimer);
+  const node = $('#toast'); node.textContent = message; node.className = 'toast'; node.hidden = false;
+  toastTimer = setTimeout(() => { node.hidden = true; }, 3800);
+}
 function save(content: string | Uint8Array, name: string, type = 'application/octet-stream'): void {
   const part = typeof content === 'string' ? content : new Uint8Array(content).buffer;
   const url = URL.createObjectURL(new Blob([part], { type })); const link = el('a'); link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
@@ -158,8 +163,7 @@ function loadWorkspace(text: string, undoable = false): void {
   document.documentElement.dataset.theme = state.theme;
 }
 try {
-  const text = persistence.load();
-  if (text) { loadWorkspace(text); }
+  persistence.load(text => loadWorkspace(text));
 } catch { /* A damaged workspace cache must not prevent a fresh session. */ }
 try {
   const stored = JSON.parse(localStorage.getItem(libraryKey) || '[]');

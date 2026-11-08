@@ -60,7 +60,7 @@ export function createPersistence(key: string, snapshot: () => unknown, report: 
     flush,
     idle: () => pending,
     saveDraft,
-    load(): string | undefined {
+    load(apply?: (text: string) => void): string | undefined {
       let current = { token: null as string | null, workspace: undefined as unknown };
       try { current = unpack(storage().getItem(key)); observed = current.token; }
       catch (cause) { failure(cause); }
@@ -69,15 +69,22 @@ export function createPersistence(key: string, snapshot: () => unknown, report: 
         if (draft?.workspace) {
           if (JSON.stringify(draft.workspace) === JSON.stringify(current.workspace)) { session().removeItem(draftKey); }
           else {
-            observed = draft.base ?? null; state = { dirty: true };
+            if (draft.base !== null && typeof draft.base !== 'string') { throw new Error('Invalid draft revision'); }
+            const text = JSON.stringify(draft.workspace);
+            // 先由工作区层完整校验并应用；损坏的草稿不能启动补存并覆盖有效共享副本。
+            apply?.(text);
+            observed = draft.base; state = { dirty: true };
             if (observed !== current.token) { conflict(current.token); }
             else if (lock) { timer = setTimeout(() => void flush(), 500); }
             else { state.result = 'session'; }
-            notify(); return JSON.stringify(draft.workspace);
+            notify(); return text;
           }
         }
       } catch { /* 损坏或禁用的标签页草稿不妨碍共享缓存恢复。 */ }
-      if (current.workspace) { state = { dirty: false, result: 'saved' }; notify(); return JSON.stringify(current.workspace); }
+      if (current.workspace) {
+        const text = JSON.stringify(current.workspace); apply?.(text);
+        state = { dirty: false, result: 'saved' }; notify(); return text;
+      }
       return undefined;
     },
     loadLatest(apply: (text: string) => void) {

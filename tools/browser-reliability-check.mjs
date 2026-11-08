@@ -28,6 +28,24 @@ try {
   const cached = await a.evaluate(() => JSON.parse(localStorage.getItem('ffmpeg-command-forge.workspace.v1')).workspace.context.inputs[0].path);
   assert.ok(['D:\\Media\\race-a.mp4', 'D:\\Media\\race-b.mp4'].includes(cached));
   await context.close();
+  const recovery = await browser.newContext({ locale: 'zh-CN' });
+  const recoveryPage = await recovery.newPage(); await recoveryPage.goto(url);
+  await input(recoveryPage).fill('D:\\Media\\keep.mp4');
+  await recoveryPage.getByText('已保存到浏览器', { exact: true }).waitFor();
+  await recoveryPage.evaluate(() => {
+    const key = 'ffmpeg-command-forge.workspace.v1';
+    sessionStorage.setItem(key + '.draft', JSON.stringify({ base: JSON.parse(localStorage.getItem(key)).revision, workspace: { format: 'broken' } }));
+  });
+  await recoveryPage.reload(); assert.equal(await input(recoveryPage).inputValue(), 'D:\\Media\\keep.mp4');
+  await recoveryPage.clock.install();
+  await recoveryPage.getByRole('button', { name: '新建方案', exact: true }).click();
+  await recoveryPage.clock.fastForward(3000);
+  await recoveryPage.getByRole('button', { name: '新建方案', exact: true }).click();
+  await recoveryPage.clock.fastForward(900);
+  assert.equal(await recoveryPage.locator('#toast').isVisible(), true, '旧通知定时器不能提前隐藏新通知');
+  await recoveryPage.clock.fastForward(2900);
+  assert.equal(await recoveryPage.locator('#toast').isHidden(), true);
+  await recovery.close();
   const fallback = await browser.newContext({ locale: 'zh-CN' });
   await fallback.addInitScript(() => Object.defineProperty(navigator, 'locks', { value: undefined }));
   const page = await fallback.newPage(); await page.goto(url);
