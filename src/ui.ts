@@ -159,6 +159,8 @@ function updateContext(update: (context: ExecutionContext) => void): void { stat
 function updateTask(id: string, update: (task: InputTask) => void): void { if (state.updateTask(id, update)) { schedule(); } }
 
 function schedule(save: 'deferred' | 'immediate' | false = 'deferred'): void {
+  const overwrite = document.querySelector<HTMLInputElement>('#allow-overwrite');
+  if (overwrite) { overwrite.checked = state.allowOverwrite; }
   renderUndo();
   document.querySelectorAll<HTMLButtonElement>('[data-copy-probe]').forEach(button => { button.disabled = true; });
   generation++; currentPlan = undefined; currentRendered = undefined;
@@ -296,7 +298,7 @@ function environment(): HTMLElement {
   grid.append(field('platform', t('目标系统'), choiceInput([['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']], state.context.platform, v => { updateContext(current => { current.platform = v as ExecutionContext['platform']; current.shell = v === 'windows' ? 'powershell' : v === 'macos' ? 'zsh' : 'bash'; current.confirmedPaths = []; current.inputs.forEach(task => { task.probe = undefined; task.sidecarsConfirmed = false; }); }); renderEditor(); })), field('shell', t('执行终端'), choiceInput(Object.entries(labels).map(([value, label]) => [value, t(label)]), state.context.shell, v => { updateContext(current => { current.shell = v as Shell; }); })));
   grid.append(field('ffmpeg', t('FFmpeg 程序'), textInput(state.context.ffmpeg, v => { updateContext(current => { current.ffmpeg = v; }); }), t('默认从 PATH 查找，也可填写完整路径')), field('ffprobe', t('ffprobe 程序'), textInput(state.context.ffprobe, v => { updateContext(current => { current.ffprobe = v; }); })));
   grid.append(field('cwd', t('工作目录'), textInput(state.context.cwd, v => { updateContext(current => { current.cwd = v; }); }, t('例如 {0}', state.context.platform === 'windows' ? 'D:\\Media' : '/home/user/Media')), t('相对路径将在此目录下解释')), field('outputDirectory', t('本次输出目录'), textInput(state.context.outputDirectory, v => { updateContext(current => { current.outputDirectory = v; }); }, t('留空时使用预设或输入文件目录'))));
-  const overwrite = el('input'); overwrite.type = 'checkbox'; overwrite.checked = state.allowOverwrite;
+  const overwrite = el('input'); overwrite.id = 'allow-overwrite'; overwrite.type = 'checkbox'; overwrite.checked = state.allowOverwrite;
   overwrite.onchange = () => { state.setOverwrite(overwrite.checked); schedule(false); };
   const overwriteField = labeled(t('允许本批脚本覆盖已有输出'), overwrite, t('递增命名仍会避让已有文件。命令预览始终使用防覆盖模式。'));
   overwriteField.classList.add('boolean'); overwriteField.prepend(overwrite);

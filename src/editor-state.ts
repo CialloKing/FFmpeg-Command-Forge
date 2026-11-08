@@ -12,13 +12,15 @@ export function createEditorState(translate: () => Translate) {
   let revision = 0, importSequence = 0;
   const checkpoint = () => clone({ preset: doc.raw, context, drafts });
   let undoEntry: { label: string; before: ReturnType<typeof checkpoint> } | undefined;
-  const changed = () => { revision++; undoEntry = undefined; };
+  const changed = () => { revision++; undoEntry = undefined; allowOverwrite = false; };
   function restoreCheckpoint(before: ReturnType<typeof checkpoint>): void {
     doc = read(before.preset); context = before.context; drafts = before.drafts;
     mappingErrors = parseMappingDraft(drafts.pathMappings).invalidLines;
   }
   function updatePreset(update: (raw: Preset) => void): void {
-    const raw = clone(doc.raw); update(raw); doc = read(raw); changed();
+    const raw = clone(doc.raw); update(raw); const next = read(raw);
+    if (JSON.stringify(raw) === JSON.stringify(doc.raw)) { return; }
+    doc = next; changed();
   }
   return {
     get doc() { return doc; },
@@ -45,6 +47,7 @@ export function createEditorState(translate: () => Translate) {
     beginImport() { return { revision, sequence: ++importSequence }; },
     acceptsImport(token: { revision: number; sequence: number }) { return token.revision === revision && token.sequence === importSequence; },
     editMappings(text: string) {
+      if (text === drafts.pathMappings) { return; }
       drafts.pathMappings = text;
       const parsed = parseMappingDraft(text); mappingErrors = parsed.invalidLines;
       // 不完整的输入仍可保存，但不能部分应用路径变换。
@@ -63,14 +66,24 @@ export function createEditorState(translate: () => Translate) {
         target[path.at(-1)!] = value;
       });
     },
-    updateContext(update: (current: ExecutionContext) => void) { update(context); changed(); },
+    updateContext(update: (current: ExecutionContext) => void) {
+      const next = clone(context); update(next);
+      if (JSON.stringify(next) === JSON.stringify(context)) { return; }
+      context = next; changed();
+    },
     updateTask(id: string, update: (current: InputTask) => void): boolean {
       const task = context.inputs.find(task => task.id === id);
       if (!task) { return false; }
-      update(task); changed(); return true;
+      const next = clone(task); update(next);
+      if (JSON.stringify(next) !== JSON.stringify(task)) {
+        for (const key of Object.keys(task)) { delete (task as unknown as Record<string, unknown>)[key]; }
+        Object.assign(task, next); changed();
+      }
+      return true;
     },
     setTheme(value: string) { theme = value; },
-    setOverwrite(value: boolean) { allowOverwrite = value; changed(); },
+    // 授权不是方案编辑；不能使刚授予的权限或待导入结果立即失效。
+    setOverwrite(value: boolean) { allowOverwrite = value; },
     localize() { doc = read(doc.raw); },
     reset() { doc = read(); context = defaultContext(); drafts = { pathMappings: '' }; mappingErrors = []; allowOverwrite = false; changed(); },
     restore(text: string) {

@@ -3,6 +3,28 @@ import assert from 'node:assert/strict';
 import { createEditorState } from '../src/editor-state';
 import { sourceText } from '../src/i18n';
 import { parseMappingDraft } from '../src/workspace';
+import { buildPlan } from '../src/plan';
+
+test('覆盖授权仅用于当前方案，无变化及失败编辑不撤销授权', async () => {
+  const state = createEditorState(() => sourceText);
+  state.updateTask(state.context.inputs[0].id, task => { task.path = 'D:\\Media\\a.mp4'; task.output = 'D:\\Output\\a.mkv'; });
+  const token = state.beginImport();
+  state.setOverwrite(true); state.setTheme('light'); state.localize();
+  state.updateContext(() => {}); state.editPreset(['输出容器'], state.doc.raw.输出容器);
+  assert.equal(state.acceptsImport(token), true);
+  assert.equal(state.allowOverwrite, true);
+  const before = JSON.stringify(state.snapshot());
+  assert.throws(() => state.updateContext(context => { context.cwd = 'broken'; throw new Error('failed'); }));
+  assert.throws(() => state.replacePreset('[]'));
+  assert.equal(JSON.stringify(state.snapshot()), before);
+  assert.equal(state.allowOverwrite, true);
+  state.updateTask(state.context.inputs[0].id, task => { task.path = 'D:\\Media\\b.mp4'; task.output = 'D:\\Output\\b.mkv'; });
+  assert.equal(state.allowOverwrite, false);
+  assert.equal((await buildPlan(state.doc, state.context, sourceText, state.allowOverwrite)).allowOverwrite, false);
+  state.setOverwrite(true); state.editMappings('unfinished');
+  assert.equal(state.allowOverwrite, false);
+  assert.equal(JSON.stringify(state.snapshot()).includes('allowOverwrite'), false);
+});
 
 test('映射草稿完整应用，v1 迁移和 v2 恢复保留原文及最后有效映射', () => {
   const state = createEditorState(() => sourceText);
