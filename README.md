@@ -71,6 +71,8 @@ CMD 交互式复制要求延迟展开关闭（可打开 `cmd /d /v:off`）。内
 
 ## 开发
 
+大批量构建和脚本渲染按约 8 ms 时间预算让出主线程，新编辑会取消旧构建。长预览按行分块布局，超过 64 KiB 时默认横向滚动，可用“自动换行”切换；复制和下载始终保留全文。ZIP 按点击时的方案快照分块编码并流式异步压缩，生成期间仍可编辑。
+
 要求 Node.js 24。构建不依赖原版仓库；测试额外需要 .NET 10 SDK 和 PATH 中的 FFmpeg/ffprobe。Windows 测试还需要 PowerShell 7 和 Git Bash，可通过 `FORGE_PWSH`、`FORGE_BASH` 指定程序路径。
 
 ```text
@@ -84,7 +86,7 @@ npm run build
 
 源码按预设、路径/参数、滤镜、流图、编码器、附加输出、执行计划、终端和界面分层。`buildPlan` 不读取 DOM；复制、预览及下载都来自同一份计划。
 
-界面层进一步分为通用控件、字段编辑、工作区状态和持久化；入口连接视图与调度。运行 `node --import tsx tools/benchmark-plan.mjs` 可测量不同名和同名批量任务的执行计划构建耗时，结果不包含转码。运行 `node tools/benchmark-ui.mjs "旧版.html" "FFmpeg Command Forge.html"` 可用本机 Edge 交替测量两个版本的批量界面，每组五次取中位数。
+界面层进一步分为通用控件、字段编辑、工作区状态和持久化；入口连接视图与调度。运行 `node --import tsx tools/benchmark-plan.mjs` 可测量不同名和同名批量任务的执行计划构建耗时，结果不包含转码。运行 `node tools/benchmark-ui.mjs "旧版.html" "FFmpeg Command Forge.html"` 可用本机 Edge 交替测量两个版本的批量界面，每组五次取中位数。`node tools/benchmark-extended-ui.mjs "旧版.html" "FFmpeg Command Forge.html"` 额外覆盖两遍编码、1 MiB 模板展开及 ZIP 下载。
 
 测试工具在 `tools/oracle`：直接编译固定版本的原版纯命令方法，替换的宿主边界仅为程序名、禁用的路径转译及预设克隆。无需编译 LakeUI，也不修改原版仓库。刷新上游资产时运行 `npm run baseline -- <FFmpegFreeUI checkout>`；工具检查固定提交并保存源文件哈希，升级前应先调整基线、检查差异及重新验证。
 

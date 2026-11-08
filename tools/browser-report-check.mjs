@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { unzipSync, strFromU8 } from 'fflate';
 const browser = await chromium.launch({ channel: process.env.FORGE_BROWSER === 'chromium' ? undefined : 'msedge', headless: true });
 try {
   const context = await browser.newContext({ locale: 'zh-CN', acceptDownloads: true });
@@ -38,6 +39,12 @@ try {
   await page.getByRole('button', { name: '任务与环境', exact: true }).click();
   await page.getByText('已保存到浏览器', { exact: true }).waitFor();
   const workspace = await saved(), task = workspace.context.inputs[0];
+  await page.getByLabel('FFmpeg 程序', { exact: true }).fill('ffmpeg-other');
+  await page.getByLabel('输入文件 1 路径', { exact: true }).fill('D:\\Media\\changed-after-environment.mp4');
+  await upload(page.getByRole('button', { name: '导入 ffprobe JSON', exact: true }), { format: { duration: '13' }, streams: [] });
+  await page.getByText(/已关联此路径.*13/).waitFor();
+  await page.getByLabel('FFmpeg 程序', { exact: true }).fill('ffmpeg');
+  await page.getByLabel('输入文件 1 路径', { exact: true }).fill(task.path);
   const report = { format: 'ffmpeg-command-forge/probes', version: 1, platform: 'windows', executable: 'ffprobe', capturedAt: new Date().toISOString(), results: [
     { key: task.id, taskId: task.id, path: task.path, resolvedPath: task.path, exitCode: 0, stdoutBase64: Buffer.from(JSON.stringify({ format: { duration: '42' }, streams: [] })).toString('base64'), stderrBase64: '' }
   ] };
@@ -52,6 +59,34 @@ try {
   await page.getByText(/环境报告未列出所需编码器：libx264/).waitFor();
   assert.equal(await page.locator('#download-script').isDisabled(), false);
   await page.reload(); await page.getByRole('button', { name: '移除环境报告', exact: true }).waitFor();
+  const large = await saved();
+  large.preset.视频参数_视频帧服务器_使用AviSynth = true;
+  large.preset.视频参数_视频帧服务器_avs脚本文件 = 'template.avs';
+  large.context.resources['template.avs'] = '# ' + 'x'.repeat(1024 * 1024) + '\nDirectShowSource("<FilePath>")';
+  await page.getByRole('button', { name: '工作区', exact: true }).click();
+  await upload(page.getByRole('button', { name: '导入工作区', exact: true }), large);
+  await page.getByText('工作区已恢复', { exact: true }).waitFor();
+  await page.getByText('命令已就绪', { exact: true }).waitFor();
+  const archive = page.waitForEvent('download'); await page.locator('#download-zip').click();
+  await page.getByLabel('输入文件 1 路径', { exact: true }).fill('D:\\Media\\edited-during-zip.mp4');
+  const files = unzipSync(await readFile(await (await archive).path()));
+  assert.ok(strFromU8(files['README.txt']).includes('sample.mp4'));
+  assert.ok(!strFromU8(files['README.txt']).includes('edited-during-zip'));
+  assert.ok(Object.keys(files).some(name => name.startsWith('resources/')));
+  await upload(page.locator('#import'), { 预设文件版本: 6, 视频参数_编码器_具体编码: 'libx264' });
+  await page.getByText('已导入：report.json', { exact: true }).waitFor();
+  await page.getByText('命令已就绪', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '批量粘贴路径', exact: true }).click();
+  await page.getByRole('textbox', { name: '每行一个输入文件路径', exact: true }).fill(Array.from({ length: 200 }, (_, i) => `D:\\Media\\batch-${i}.mp4`).join('\n'));
+  await page.getByRole('button', { name: '应用', exact: true }).click();
+  // 大模板计划执行途中继续编辑，取消的旧结果不得重新进入就绪状态。
+  await page.getByLabel('输入文件 1 路径', { exact: true }).fill('D:\\Media\\latest.mp4');
+  await page.getByText('命令已就绪', { exact: true }).waitFor();
+  const preview = await page.locator('#command').textContent();
+  assert.ok(preview.includes('latest.mp4')); assert.ok(preview.includes('batch-199.mp4'));
+  await page.locator('#command').evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await page.getByRole('button', { name: '自动换行', exact: true }).click();
+  assert.equal(await page.locator('#command').textContent(), preview);
   assert.deepEqual(errors, []);
   await context.close();
   console.log('参数差异与恢复、预设摘要、批量报告及环境提示浏览器验收通过');

@@ -10,7 +10,9 @@ try {
   const a = await context.newPage(), b = await context.newPage();
   await a.goto(url); await b.goto(url);
   const input = page => page.getByLabel('输入文件 1 路径', { exact: true });
+  await a.getByRole('checkbox', { name: '允许本批脚本覆盖已有输出', exact: true }).check();
   await input(a).fill('D:\\Media\\a.mp4');
+  assert.equal(await a.getByRole('checkbox', { name: '允许本批脚本覆盖已有输出', exact: true }).isChecked(), false);
   await a.getByText('已保存到浏览器', { exact: true }).waitFor();
   await b.getByText('其他页面已保存，自动保存已暂停', { exact: true }).waitFor();
   await input(b).fill('D:\\Media\\b.mp4');

@@ -1,13 +1,13 @@
 import { createEditorState } from './editor-state';
 import { button, createControls, el, issueTarget, labeled, row, textInput } from './controls';
 import { createParameterEditor } from './parameter-editor';
-import { zipSync, strToU8 } from 'fflate';
+import { createArchive } from './archive';
 import { revision, version as upstreamVersion } from '../docs/upstream.json';
 import ffmpegFull from './data/ffmpeg-full-2026.11.3.json';
 import { blankValue, clone, data, exportPreset, groupFor, groups, importPreset, schema } from './preset';
 import { changedFields } from './differences';
 import { associatedProbe, buildPlan, resolvedInput } from './plan';
-import { renderCommand, renderPlan } from './render';
+import { renderCommand, renderPlanAsync } from './render';
 import { subtitleCandidates } from './filters';
 import { filename, isPresetPathField, pathStyle } from './paths';
 import { isProbeData } from './workspace';
@@ -44,11 +44,13 @@ const presetFormat = `v${data.defaults.预设文件版本} JSON`;
 const presetHint = () => t('预设兼容基线 {0} · {1}', presetBaseline, presetFormat);
 type PreviewTab = 'commands' | 'stages' | 'graph' | 'args' | 'script';
 let previewTab: PreviewTab = 'commands';
+let previewWrap: boolean | undefined;
 let parameterView = 'all';
 const defaultPreset = importPreset();
 const taskPageSize = 50;
 let taskPage = 0;
 let selected = '任务与环境', query = '', generation = 0, timer: ReturnType<typeof setTimeout>, currentPlan: CommandPlan | undefined, currentRendered: RenderedPlan | undefined;
+let buildController: AbortController | undefined, archiveBusy = false;
 let cacheState: SaveState = { dirty: false };
 const persistence = createPersistence(cacheKey, workspaceSnapshot, state => {
   if (state.dirty !== cacheState.dirty || state.result !== cacheState.result) { cacheState = state; renderCacheStatus(); }
@@ -91,7 +93,7 @@ function mountApp(): void {
       <div class="status-card"><div class="status-icon" id="status-icon">◌</div><div><div class="status-title" id="status-title">${t('正在构建')}</div><div class="status-caption" id="status-caption">${t('检查预设与执行环境')}</div></div></div>
       <div id="stream-summary" class="note stack" hidden></div>
       <div id="cache-status" class="note stack" role="status" hidden></div>
-      <div><div class="tabs" id="preview-tabs"></div><div class="terminal"><div class="terminal-top"><span id="terminal-title">POWERSHELL</span><button id="copy-preview" class="ghost small">${t('复制预览')}</button></div><pre id="command" tabindex="0" aria-label="${t('生成的命令或脚本')}"></pre></div></div>
+      <div><div class="tabs" id="preview-tabs"></div><div class="terminal"><div class="terminal-top"><span id="terminal-title">POWERSHELL</span><button id="wrap-preview" class="ghost small" aria-pressed="true" title="${t('长预览默认横向滚动，复制与下载始终包含全文')}">${t('自动换行')}</button><button id="copy-preview" class="ghost small">${t('复制预览')}</button></div><pre id="command" tabindex="0" aria-label="${t('生成的命令或脚本')}"></pre></div></div>
       <div class="stack">
         <button id="copy-final" class="primary" disabled>${t('复制最终脚本 ↗')}</button>
         <div class="download-row"><button id="download-script" disabled>${t('下载脚本')}</button><button id="download-zip" disabled>${t('下载任务包')}</button></div>
@@ -173,7 +175,8 @@ function updateContext(update: (context: ExecutionContext) => void): void { stat
 function updateTask(id: string, update: (task: InputTask) => void): void { if (state.updateTask(id, update)) { schedule(); } }
 
 function schedule(save: 'deferred' | 'immediate' | false = 'deferred'): void {
-  const overwrite = document.querySelector<HTMLInputElement>('#allow-overwrite');
+  buildController?.abort();
+  const overwrite = document.querySelector<HTMLInputElement>('[data-overwrite]');
   if (overwrite) { overwrite.checked = state.allowOverwrite; }
   renderUndo();
   document.querySelectorAll<HTMLButtonElement>('[data-copy-probe], [data-download-report]').forEach(button => { button.disabled = true; });
@@ -186,11 +189,16 @@ function schedule(save: 'deferred' | 'immediate' | false = 'deferred'): void {
 }
 async function recompute(): Promise<void> {
   const id = ++generation;
+  buildController?.abort();
+  const controller = buildController = new AbortController();
+  const options = { signal: controller.signal, yield: () => new Promise<void>(resolve => setTimeout(resolve, 0)), budgetMs: 8 };
   try {
-    const plan = await buildPlan(state.doc, state.context, t, state.allowOverwrite); if (id !== generation) { return; }
+    const plan = await buildPlan(state.doc, state.context, t, state.allowOverwrite, options); if (id !== generation) { return; }
     plan.issues.push(...environmentIssues(plan, state.environmentReport, t));
     if (state.mappingErrors.length) { plan.status = 'incompatible'; plan.issues.push({ level: 'error', message: mappingErrorText(), target: contextTarget(['pathMappings']) }); }
-    currentPlan = plan; currentRendered = renderPlan(plan, t); renderOutput();
+    const rendered = await renderPlanAsync(plan, t, options);
+    if (id !== generation) { return; }
+    currentPlan = plan; currentRendered = rendered; renderOutput();
     document.querySelectorAll<HTMLButtonElement>('[data-copy-probe]').forEach(button => { button.disabled = !!state.mappingErrors.length; });
     document.querySelectorAll<HTMLButtonElement>('[data-download-report]').forEach(button => { button.disabled = !!state.mappingErrors.length || button.dataset.downloadReport === 'probes' && state.context.inputs.some(task => !task.path.trim()); });
     const tasks = new Map(state.context.inputs.map(task => [task.id, task]));
@@ -199,7 +207,7 @@ async function recompute(): Promise<void> {
       renderProbeDetail(detail, task ? associatedProbe(task, resolvedInput(task, state.context)) : undefined);
     }
   } catch (error) {
-    if (id !== generation) { return; }
+    if (id !== generation || controller.signal.aborted) { return; }
     currentPlan = undefined; currentRendered = undefined; $('#status-title').textContent = t('无法构建'); $('#status-caption').textContent = t('请检查参数或重新导入预设'); $('#command').textContent = String(error); $('#copy-final').setAttribute('disabled', '');
   }
 }
@@ -261,7 +269,18 @@ function downloadReport(kind: ReportKind): void {
   }
   const files = reportScripts(currentPlan, kind, t);
   if (files.length === 1) { save(files[0].content, files[0].name, 'text/plain;charset=utf-8'); }
-  else { save(zipSync(Object.fromEntries(files.map(file => [file.name, strToU8(file.content)]))), 'Forge-' + kind + '.zip', 'application/zip'); }
+  else { void saveArchive(Object.fromEntries(files.map(file => [file.name, file.content])), 'Forge-' + kind + '.zip'); }
+}
+async function saveArchive(files: Record<string, string>, name: string): Promise<void> {
+  if (archiveBusy) { return; }
+  archiveBusy = true;
+  const button = $<HTMLButtonElement>('#download-zip'); button.disabled = true; button.textContent = t('正在生成任务包…');
+  try {
+    // files 在点击时已建立独立快照；压缩过程中继续编辑不会混入下载内容。
+    const bytes = await createArchive(files, { yield: () => new Promise(resolve => setTimeout(resolve, 0)), budgetMs: 8 });
+    save(bytes, name, 'application/zip');
+  } catch (error) { toast(t('任务包生成失败：{0}', String(error))); }
+  finally { archiveBusy = false; button.textContent = t('下载任务包'); button.disabled = !canOutput(); }
 }
 function importBatchProbes(): void {
   pick('.json', (_file, text) => {
@@ -301,7 +320,8 @@ function taskCard(task: InputTask, index: number): HTMLElement {
   block.append(title, taskField('path', t('输入路径'), pathInput), taskField('output', t('指定输出文件（可选）'), textInput(task.output || '', v => { updateTask(task.id, current => { current.output = v; }); }), t('填写后覆盖本次自动命名')));
   const actions = el('div', 'row wrap');
   const probeReceiver = () => {
-    const binding = { path: task.path, resolvedPath: resolvedInput(task, state.context) };
+    const selected = state.context.inputs.find(input => input.id === task.id) ?? task;
+    const binding = { path: selected.path, resolvedPath: resolvedInput(selected, state.context) };
     return (text: string) => {
       const probe: unknown = JSON.parse(text.replace(/^\uFEFF/, ''));
       if (!isProbeData(probe)) { throw new Error(t('文件不是 ffprobe 的 JSON 输出')); }
@@ -340,7 +360,7 @@ function environment(): HTMLElement {
   grid.append(field('platform', t('目标系统'), choiceInput([['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']], state.context.platform, v => { updateContext(current => { current.platform = v as ExecutionContext['platform']; current.shell = v === 'windows' ? 'powershell' : v === 'macos' ? 'zsh' : 'bash'; current.confirmedPaths = []; current.inputs.forEach(task => { task.probe = undefined; task.sidecarsConfirmed = false; }); }); renderEditor(); })), field('shell', t('执行终端'), choiceInput(Object.entries(labels).map(([value, label]) => [value, t(label)]), state.context.shell, v => { updateContext(current => { current.shell = v as Shell; }); })));
   grid.append(field('ffmpeg', t('FFmpeg 程序'), textInput(state.context.ffmpeg, v => { updateContext(current => { current.ffmpeg = v; }); }), t('默认从 PATH 查找，也可填写完整路径')), field('ffprobe', t('ffprobe 程序'), textInput(state.context.ffprobe, v => { updateContext(current => { current.ffprobe = v; }); })));
   grid.append(field('cwd', t('工作目录'), textInput(state.context.cwd, v => { updateContext(current => { current.cwd = v; }); }, t('例如 {0}', state.context.platform === 'windows' ? 'D:\\Media' : '/home/user/Media')), t('相对路径将在此目录下解释')), field('outputDirectory', t('本次输出目录'), textInput(state.context.outputDirectory, v => { updateContext(current => { current.outputDirectory = v; }); }, t('留空时使用预设或输入文件目录'))));
-  const overwrite = el('input'); overwrite.id = 'allow-overwrite'; overwrite.type = 'checkbox'; overwrite.checked = state.allowOverwrite;
+  const overwrite = el('input'); overwrite.dataset.overwrite = ''; overwrite.type = 'checkbox'; overwrite.checked = state.allowOverwrite;
   overwrite.onchange = () => { state.setOverwrite(overwrite.checked); schedule(false); };
   const overwriteField = labeled(t('允许本批脚本覆盖已有输出'), overwrite, t('递增命名仍会避让已有文件。命令预览始终使用防覆盖模式。'));
   overwriteField.classList.add('boolean'); overwriteField.prepend(overwrite);
@@ -511,6 +531,19 @@ function previewText(plan: CommandPlan, rendered: RenderedPlan): string {
 
 function mappingErrorText(): string { return t('路径映射第 {0} 行格式无效；预览仍使用上次有效映射，请修正后输出。', state.mappingErrors.join('、')); }
 function canOutput(): boolean { return !state.mappingErrors.length && currentPlan?.status === 'ready' && !!currentRendered && !currentRendered.issues.some(issue => issue.level === 'error'); }
+function setPreviewText(text: string): void {
+  const node = $('#command');
+  if (text.length < 65536) { node.textContent = text; return; }
+  const fragment = document.createDocumentFragment();
+  let start = 0, cursor = 0, lines = 0;
+  // 全文仍在 DOM 中，按行分块让浏览器跳过远离可视区的布局；复制不依赖布局结果。
+  while ((cursor = text.indexOf('\n', cursor)) !== -1) {
+    cursor++;
+    if (++lines % 32 === 0) { fragment.append(el('span', 'preview-chunk', text.slice(start, cursor))); start = cursor; }
+  }
+  if (start < text.length) { fragment.append(el('span', 'preview-chunk', text.slice(start))); }
+  node.replaceChildren(fragment);
+}
 function renderOutput(): void {
   const plan = currentPlan!, rendered = currentRendered!, issues = [...plan.issues, ...rendered.issues], incompatible = issues.some(x => x.level === 'error'), ready = plan.status === 'ready' && !incompatible;
   $('#task-summary').textContent = t('{0} 个输入 · {1} 个执行阶段 · {2}', plan.tasks.length, plan.tasks.reduce((n, t) => n + t.stages.length, 0), t(labels[state.context.shell]));
@@ -522,11 +555,14 @@ function renderOutput(): void {
   $('#status-icon').style.color = ready ? 'var(--accent)' : incompatible ? 'var(--error)' : 'var(--orange)';
   const tabs = $('#preview-tabs'); tabs.replaceChildren();
   const updatePreview = () => {
-    $('#command').textContent = previewText(plan, rendered);
+    const text = previewText(plan, rendered), wrap = previewWrap ?? text.length < 65536;
+    setPreviewText(text); $('#command').classList.toggle('unwrapped', !wrap);
+    $('#wrap-preview').setAttribute('aria-pressed', String(wrap));
     const fallback = previewTab === 'script' && !rendered.copyable;
     $('#terminal-title').textContent = (ready ? '' : 'PREVIEW · ') + (fallback ? 'POWERSHELL 5.1' : t(labels[state.context.shell]).toUpperCase());
     $<HTMLButtonElement>('#copy-preview').disabled = fallback || !!state.mappingErrors.length;
   };
+  $('#wrap-preview').onclick = () => { previewWrap = $('#wrap-preview').getAttribute('aria-pressed') !== 'true'; updatePreview(); };
   const labelsByTab: [PreviewTab, string][] = [['commands', t('命令')], ['stages', t('阶段')], ['graph', t('滤镜图')], ['args', t('参数')], ['script', t('完整脚本')]];
   for (const [id, name] of labelsByTab) {
     const tab = button(name, () => {
@@ -541,6 +577,7 @@ function renderOutput(): void {
   updatePreview();
   $<HTMLButtonElement>('#copy-final').disabled = !ready || !rendered.copyable;
   for (const id of ['download-script', 'download-zip']) { $<HTMLButtonElement>('#' + id).disabled = !ready; }
+  if (archiveBusy) { $<HTMLButtonElement>('#download-zip').disabled = true; }
   const issueBox = $('#issues'); issueBox.replaceChildren();
   if (issues.length) {
     issueBox.append(el('h3', '', t('需要关注')));
@@ -641,10 +678,10 @@ function bindApp(): void {
   $('#download-script').onclick = () => { if (canOutput() && currentRendered) { const { content, name } = currentRendered.download; save(content, name, 'text/plain;charset=utf-8'); } };
   $('#download-zip').onclick = () => {
     if (!canOutput() || !currentPlan || !currentRendered) { return; }
-    const files: Record<string, Uint8Array> = { 'preset-v6.json': strToU8(exportPreset(state.doc)), 'README.txt': strToU8(['FFmpeg Command Forge', t('终端：{0}', t(labels[state.context.shell])), t('先检查脚本，然后在所选终端运行。输入媒体不包含在任务包内。'), ...(state.context.shell === 'cmd' ? [t('解压整个任务包后运行 forge-task.cmd。启动器需要同目录的 forge-task.ps1。')] : []), t('模板副本位于 resources，完整脚本会准备所需的临时文件。'), '', ''].join('\n') + currentPlan.tasks.map(t => `${t.input}\n=> ${t.output}`).join('\n\n')) };
-    for (const { name, content } of currentRendered.bundleScripts) { files[name] = strToU8(content); }
-    currentRendered.assets.forEach((asset, i) => { files['resources/' + String(i + 1).padStart(3, '0') + '-' + filename(asset.path, pathStyle(state.context.platform)).replaceAll('\\', '_')] = strToU8(asset.content); });
-    save(zipSync(files), 'Forge-task.zip', 'application/zip');
+    const files: Record<string, string> = { 'preset-v6.json': exportPreset(state.doc), 'README.txt': ['FFmpeg Command Forge', t('终端：{0}', t(labels[state.context.shell])), t('先检查脚本，然后在所选终端运行。输入媒体不包含在任务包内。'), ...(state.context.shell === 'cmd' ? [t('解压整个任务包后运行 forge-task.cmd。启动器需要同目录的 forge-task.ps1。')] : []), t('模板副本位于 resources，完整脚本会准备所需的临时文件。'), '', ''].join('\n') + currentPlan.tasks.map(t => `${t.input}\n=> ${t.output}`).join('\n\n') };
+    for (const { name, content } of currentRendered.bundleScripts) { files[name] = content; }
+    currentRendered.assets.forEach((asset, i) => { files['resources/' + String(i + 1).padStart(3, '0') + '-' + filename(asset.path, pathStyle(state.context.platform)).replaceAll('\\', '_')] = asset.content; });
+    void saveArchive(files, 'Forge-task.zip');
   };
 }
 

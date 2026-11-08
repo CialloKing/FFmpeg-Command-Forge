@@ -315,5 +315,9 @@
   "环境查询失败：{0}": "Environment query failed: {0}",
   "环境报告未列出所需编码器：{0}": "The environment report does not list the required encoder: {0}",
   "环境报告未列出所需滤镜：{0}": "The environment report does not list the required filter: {0}",
-  "自定义参数或滤镜的依赖未检查，请在目标机器确认": "Dependencies of custom arguments or filters were not checked. Verify them on the target machine."
+  "自定义参数或滤镜的依赖未检查，请在目标机器确认": "Dependencies of custom arguments or filters were not checked. Verify them on the target machine.",
+  "正在生成任务包…": "Creating task bundle…",
+  "任务包生成失败：{0}": "Failed to create task bundle: {0}",
+  "自动换行": "Wrap lines",
+  "长预览默认横向滚动，复制与下载始终包含全文": "Long previews scroll horizontally by default. Copy and download always include all content."
 }

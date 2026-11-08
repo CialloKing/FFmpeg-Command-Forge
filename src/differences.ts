@@ -17,6 +17,7 @@ function comparable(doc: PresetDocument, path: FieldPath, spec: Schema | undefin
   return value;
 }
 export function sameField(current: PresetDocument, reference: PresetDocument, path: FieldPath): boolean {
+  if (path.at(-1) === '实例ID') { return true; }
   let spec: Schema | undefined = schema;
   for (const key of path) { spec = typeof key === 'number' ? spec?.items : spec?.fields?.[key]; }
   return JSON.stringify(comparable(current, path, spec)) === JSON.stringify(comparable(reference, path, spec));

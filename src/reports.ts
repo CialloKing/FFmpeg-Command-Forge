@@ -15,10 +15,11 @@ export interface ToolReport {
   format: string; version: 1; platform: Platform; executable: string; capturedAt: string; results: ReportEntry[];
 }
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
-export function reportText(base64: string): string {
+function reportBytes(base64: string): Uint8Array {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)) { throw new Error('Invalid Base64'); }
-  return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(atob(base64), c => c.charCodeAt(0))).replace(/^\uFEFF/, '');
+  return Uint8Array.from(atob(base64), c => c.charCodeAt(0));
 }
+export function reportText(base64: string): string { return new TextDecoder().decode(reportBytes(base64)).replace(/^\uFEFF/, ''); }
 export function parseReport(value: unknown, kind: ReportKind, t: Translate = sourceText): ToolReport {
   const invalid = (): never => { throw new Error(t('报告格式无效或版本不支持')); };
   if (!object(value) || value.format !== 'ffmpeg-command-forge/' + kind || value.version !== 1 ||
@@ -26,10 +27,10 @@ export function parseReport(value: unknown, kind: ReportKind, t: Translate = sou
       typeof value.capturedAt !== 'string' || !Number.isFinite(Date.parse(value.capturedAt)) || !Array.isArray(value.results)) { invalid(); }
   const report = value as ToolReport, seen = new Set<string>();
   for (const entry of report.results) {
-    if (!object(entry) || typeof entry.key !== 'string' || seen.has(entry.key) || !Number.isInteger(entry.exitCode) ||
+    if (!object(entry) || typeof entry.key !== 'string' || !entry.key || seen.has(entry.key) || !Number.isInteger(entry.exitCode) ||
         typeof entry.stdoutBase64 !== 'string' || typeof entry.stderrBase64 !== 'string') { invalid(); }
     if (kind === 'probes' && (typeof entry.taskId !== 'string' || entry.key !== entry.taskId || typeof entry.path !== 'string' || typeof entry.resolvedPath !== 'string')) { invalid(); }
-    try { reportText(entry.stdoutBase64); reportText(entry.stderrBase64); } catch { invalid(); }
+    try { reportBytes(entry.stdoutBase64); reportBytes(entry.stderrBase64); } catch { invalid(); }
     seen.add(entry.key);
   }
   if (kind === 'environment' && (seen.size !== 4 || !['version', 'encoders', 'filters', 'hwaccels'].every(key => seen.has(key)))) { invalid(); }
@@ -70,7 +71,7 @@ export function environmentIssues(plan: CommandPlan, report: ToolReport | undefi
   // 只分割滤镜图语法中的分隔符，路径和表达式里的转义逗号不代表新滤镜。
   const scanFilters = (graph: string) => {
     let token = '', quoted = false, escaped = false;
-    const collect = () => { const name = token.replace(/^(?:\s*\[[^\]]*\])+\s*/, '').trim().match(/^([A-Za-z0-9_]+)(?:[=@]|$)/)?.[1]; if (name) { requiredFilters.add(name); } token = ''; };
+    const collect = () => { const name = token.replace(/^(?:\s*\[[^\]]*\])+\s*/, '').trim().match(/^([A-Za-z0-9_]+)(?:[=@\[]|$)/)?.[1]; if (name) { requiredFilters.add(name); } token = ''; };
     for (const char of graph) {
       if (escaped) { token += char; escaped = false; continue; }
       if (char === '\\') { token += char; escaped = true; continue; }
@@ -94,8 +95,9 @@ export function environmentIssues(plan: CommandPlan, report: ToolReport | undefi
 export function reportScripts(plan: CommandPlan, kind: ReportKind, t: Translate = sourceText): ScriptFile[] {
   const c = plan.context, name = kind === 'probes' ? 'forge-probe' : 'forge-environment';
   const executable = kind === 'probes' ? c.ffprobe : c.ffmpeg;
+  const inputs = new Map(c.inputs.map(task => [task.id, task.path]));
   const requests = kind === 'probes' ? plan.probes.map(stage => ({
-    metadata: { key: stage.taskId, taskId: stage.taskId, path: c.inputs.find(task => task.id === stage.taskId)!.path, resolvedPath: stage.args.at(-1)! }, args: stage.args
+    metadata: { key: stage.taskId, taskId: stage.taskId, path: inputs.get(stage.taskId)!, resolvedPath: stage.args.at(-1)! }, args: stage.args
   })) : ['version', 'encoders', 'filters', 'hwaccels'].map(key => ({ metadata: { key }, args: ['-hide_banner', '-' + key] }));
   const header = { format: 'ffmpeg-command-forge/' + kind, version: 1, platform: c.platform, executable };
   const message = t('报告已保存：');

@@ -1,0 +1,578 @@
+{
+  "date": "2026-11-08",
+  "timezone": "Asia/Shanghai",
+  "node": "v24.16.0",
+  "browser": "Edge 149.0.4022.69",
+  "viewport": "1536x1000",
+  "rounds": 5,
+  "baselineCommit": "bd4dc6073f0406624c3523584302149606a16002",
+  "longTaskThresholdMs": 50,
+  "rows": [
+    {
+      "file": "bd4dc60",
+      "count": 100,
+      "applyMs": 12,
+      "readyMs": 118.3,
+      "longestTaskMs": 0,
+      "nodes": 1037,
+      "cards": 50,
+      "runs": [
+        {
+          "applyMs": 12.199999988079071,
+          "readyMs": 118.29999999701977,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 12.5,
+          "readyMs": 119.3999999910593,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 11.900000005960464,
+          "readyMs": 117.5,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 12,
+          "readyMs": 119.20000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 11.400000005960464,
+          "readyMs": 118,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        }
+      ]
+    },
+    {
+      "file": "third-round",
+      "count": 100,
+      "applyMs": 12.2,
+      "readyMs": 119,
+      "longestTaskMs": 0,
+      "nodes": 1047,
+      "cards": 50,
+      "runs": [
+        {
+          "applyMs": 12.400000005960464,
+          "readyMs": 119.79999999701977,
+          "longestTaskMs": 0,
+          "nodes": 1047,
+          "cards": 50
+        },
+        {
+          "applyMs": 12.200000002980232,
+          "readyMs": 118.90000000596046,
+          "longestTaskMs": 0,
+          "nodes": 1047,
+          "cards": 50
+        },
+        {
+          "applyMs": 12.199999988079071,
+          "readyMs": 118.5,
+          "longestTaskMs": 0,
+          "nodes": 1047,
+          "cards": 50
+        },
+        {
+          "applyMs": 12.5,
+          "readyMs": 119.70000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1047,
+          "cards": 50
+        },
+        {
+          "applyMs": 12,
+          "readyMs": 119,
+          "longestTaskMs": 0,
+          "nodes": 1047,
+          "cards": 50
+        }
+      ]
+    },
+    {
+      "file": "bd4dc60",
+      "count": 500,
+      "applyMs": 12.5,
+      "readyMs": 145.6,
+      "longestTaskMs": 0,
+      "nodes": 1037,
+      "cards": 50,
+      "runs": [
+        {
+          "applyMs": 12.800000011920929,
+          "readyMs": 145.20000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 12.5,
+          "readyMs": 145.70000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 12.400000005960464,
+          "readyMs": 149.70000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 12.900000005960464,
+          "readyMs": 145.6000000089407,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 12.5,
+          "readyMs": 145.19999998807907,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        }
+      ]
+    },
+    {
+      "file": "third-round",
+      "count": 500,
+      "applyMs": 13.4,
+      "readyMs": 134.3,
+      "longestTaskMs": 0,
+      "nodes": 1063,
+      "cards": 50,
+      "runs": [
+        {
+          "applyMs": 13.400000005960464,
+          "readyMs": 138.20000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1063,
+          "cards": 50
+        },
+        {
+          "applyMs": 13.299999997019768,
+          "readyMs": 134,
+          "longestTaskMs": 0,
+          "nodes": 1063,
+          "cards": 50
+        },
+        {
+          "applyMs": 13.400000005960464,
+          "readyMs": 141.70000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1063,
+          "cards": 50
+        },
+        {
+          "applyMs": 13.600000008940697,
+          "readyMs": 133.90000000596046,
+          "longestTaskMs": 0,
+          "nodes": 1063,
+          "cards": 50
+        },
+        {
+          "applyMs": 13.400000005960464,
+          "readyMs": 134.30000001192093,
+          "longestTaskMs": 0,
+          "nodes": 1063,
+          "cards": 50
+        }
+      ]
+    },
+    {
+      "file": "bd4dc60",
+      "count": 1000,
+      "applyMs": 13.2,
+      "readyMs": 180.6,
+      "longestTaskMs": 0,
+      "nodes": 1037,
+      "cards": 50,
+      "runs": [
+        {
+          "applyMs": 13.099999994039536,
+          "readyMs": 180.20000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 13.299999997019768,
+          "readyMs": 179.70000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 13.199999988079071,
+          "readyMs": 181.3999999910593,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 13.400000005960464,
+          "readyMs": 180.6000000089407,
+          "longestTaskMs": 0,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 12.899999991059303,
+          "readyMs": 192.5,
+          "longestTaskMs": 53,
+          "nodes": 1037,
+          "cards": 50
+        }
+      ]
+    },
+    {
+      "file": "third-round",
+      "count": 1000,
+      "applyMs": 14.2,
+      "readyMs": 152.9,
+      "longestTaskMs": 0,
+      "nodes": 1079,
+      "cards": 50,
+      "runs": [
+        {
+          "applyMs": 14.200000002980232,
+          "readyMs": 152.90000000596046,
+          "longestTaskMs": 0,
+          "nodes": 1079,
+          "cards": 50
+        },
+        {
+          "applyMs": 13.699999988079071,
+          "readyMs": 152.09999999403954,
+          "longestTaskMs": 0,
+          "nodes": 1079,
+          "cards": 50
+        },
+        {
+          "applyMs": 14.799999997019768,
+          "readyMs": 152.3999999910593,
+          "longestTaskMs": 0,
+          "nodes": 1079,
+          "cards": 50
+        },
+        {
+          "applyMs": 14.099999994039536,
+          "readyMs": 154.09999999403954,
+          "longestTaskMs": 0,
+          "nodes": 1079,
+          "cards": 50
+        },
+        {
+          "applyMs": 14.700000002980232,
+          "readyMs": 153.09999999403954,
+          "longestTaskMs": 0,
+          "nodes": 1079,
+          "cards": 50
+        }
+      ]
+    },
+    {
+      "file": "bd4dc60",
+      "count": 2000,
+      "applyMs": 15.2,
+      "readyMs": 249.8,
+      "longestTaskMs": 82,
+      "nodes": 1037,
+      "cards": 50,
+      "runs": [
+        {
+          "applyMs": 15.399999991059303,
+          "readyMs": 249.3999999910593,
+          "longestTaskMs": 81,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 14.900000005960464,
+          "readyMs": 249.79999999701977,
+          "longestTaskMs": 81,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 15.200000002980232,
+          "readyMs": 250.70000000298023,
+          "longestTaskMs": 82,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 15.199999988079071,
+          "readyMs": 248.59999999403954,
+          "longestTaskMs": 82,
+          "nodes": 1037,
+          "cards": 50
+        },
+        {
+          "applyMs": 14.5,
+          "readyMs": 250.79999999701977,
+          "longestTaskMs": 82,
+          "nodes": 1037,
+          "cards": 50
+        }
+      ]
+    },
+    {
+      "file": "third-round",
+      "count": 2000,
+      "applyMs": 16.1,
+      "readyMs": 190.4,
+      "longestTaskMs": 0,
+      "nodes": 1110,
+      "cards": 50,
+      "runs": [
+        {
+          "applyMs": 16.099999994039536,
+          "readyMs": 189.79999999701977,
+          "longestTaskMs": 0,
+          "nodes": 1110,
+          "cards": 50
+        },
+        {
+          "applyMs": 15.899999991059303,
+          "readyMs": 195.59999999403954,
+          "longestTaskMs": 0,
+          "nodes": 1110,
+          "cards": 50
+        },
+        {
+          "applyMs": 16.599999994039536,
+          "readyMs": 190.40000000596046,
+          "longestTaskMs": 0,
+          "nodes": 1110,
+          "cards": 50
+        },
+        {
+          "applyMs": 15.700000002980232,
+          "readyMs": 188.20000000298023,
+          "longestTaskMs": 0,
+          "nodes": 1110,
+          "cards": 50
+        },
+        {
+          "applyMs": 17,
+          "readyMs": 195,
+          "longestTaskMs": 0,
+          "nodes": 1110,
+          "cards": 50
+        }
+      ]
+    },
+    {
+      "file": "bd4dc60",
+      "profile": "two-pass",
+      "count": 100,
+      "readyMs": 131.8,
+      "longestTaskMs": 0,
+      "runs": [
+        {
+          "readyMs": 131.19999998807907,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 131.40000000596046,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 139.29999999701977,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 132.79999999701977,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 131.79999999701977,
+          "longestTaskMs": 0
+        }
+      ]
+    },
+    {
+      "file": "third-round",
+      "profile": "two-pass",
+      "count": 100,
+      "readyMs": 127.6,
+      "longestTaskMs": 0,
+      "runs": [
+        {
+          "readyMs": 127.09999999403954,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 126.69999998807907,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 127.59999999403954,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 127.59999999403954,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 128.5,
+          "longestTaskMs": 0
+        }
+      ]
+    },
+    {
+      "file": "bd4dc60",
+      "profile": "two-pass",
+      "count": 2000,
+      "readyMs": 445.4,
+      "longestTaskMs": 215,
+      "runs": [
+        {
+          "readyMs": 450.79999999701977,
+          "longestTaskMs": 220
+        },
+        {
+          "readyMs": 447.30000001192093,
+          "longestTaskMs": 214
+        },
+        {
+          "readyMs": 444.70000000298023,
+          "longestTaskMs": 215
+        },
+        {
+          "readyMs": 445.40000000596046,
+          "longestTaskMs": 216
+        },
+        {
+          "readyMs": 442,
+          "longestTaskMs": 211
+        }
+      ]
+    },
+    {
+      "file": "third-round",
+      "profile": "two-pass",
+      "count": 2000,
+      "readyMs": 299.5,
+      "longestTaskMs": 0,
+      "runs": [
+        {
+          "readyMs": 309.3999999910593,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 299.5,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 296.5,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 299.59999999403954,
+          "longestTaskMs": 0
+        },
+        {
+          "readyMs": 297.19999998807907,
+          "longestTaskMs": 0
+        }
+      ]
+    },
+    {
+      "file": "bd4dc60",
+      "profile": "template",
+      "count": 20,
+      "readyMs": 604.1,
+      "longestTaskMs": 490,
+      "zipMs": 716.7,
+      "zipLongestTaskMs": 641,
+      "runs": [
+        {
+          "readyMs": 601.8999999910593,
+          "longestTaskMs": 494,
+          "zipMs": 773.5,
+          "zipLongestTaskMs": 647
+        },
+        {
+          "readyMs": 609,
+          "longestTaskMs": 493,
+          "zipMs": 716.7000000029802,
+          "zipLongestTaskMs": 634
+        },
+        {
+          "readyMs": 604.1000000089407,
+          "longestTaskMs": 489,
+          "zipMs": 716.0999999940395,
+          "zipLongestTaskMs": 637
+        },
+        {
+          "readyMs": 603.7000000029802,
+          "longestTaskMs": 488,
+          "zipMs": 724,
+          "zipLongestTaskMs": 651
+        },
+        {
+          "readyMs": 605.6000000089407,
+          "longestTaskMs": 490,
+          "zipMs": 714.3000000119209,
+          "zipLongestTaskMs": 641
+        }
+      ]
+    },
+    {
+      "file": "third-round",
+      "profile": "template",
+      "count": 20,
+      "readyMs": 687.7,
+      "longestTaskMs": 0,
+      "zipMs": 524.1,
+      "zipLongestTaskMs": 0,
+      "runs": [
+        {
+          "readyMs": 672.7999999970198,
+          "longestTaskMs": 0,
+          "zipMs": 519.5,
+          "zipLongestTaskMs": 0
+        },
+        {
+          "readyMs": 687.2000000029802,
+          "longestTaskMs": 0,
+          "zipMs": 524.0999999940395,
+          "zipLongestTaskMs": 0
+        },
+        {
+          "readyMs": 689.7000000029802,
+          "longestTaskMs": 0,
+          "zipMs": 538.2999999970198,
+          "zipLongestTaskMs": 0
+        },
+        {
+          "readyMs": 692.6000000089407,
+          "longestTaskMs": 0,
+          "zipMs": 519.5999999940395,
+          "zipLongestTaskMs": 0
+        },
+        {
+          "readyMs": 687.6999999880791,
+          "longestTaskMs": 0,
+          "zipMs": 524.7000000029802,
+          "zipLongestTaskMs": 0
+        }
+      ]
+    }
+  ]
+}

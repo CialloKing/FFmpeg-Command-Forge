@@ -2,6 +2,7 @@ import { extension, pathKey, pathStyle, splitTrailingSerial, withoutExtension, t
 import { incrementalNaming, localFile } from './plan';
 import type { CommandPlan, PlannedTask } from './types';
 import type { Translate } from './i18n';
+import { finish } from './scheduling';
 
 export const psQuote = (s: string) => "'" + s.replaceAll("'", "''") + "'";
 export const posixQuote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
@@ -49,7 +50,8 @@ public static class ForgeFile {
   }
 }`.trim().replace(/\s*\n\s*/g, ' ');
 
-export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
+export function windowsPreflight(plan: CommandPlan, t: Translate): string[] { return finish(windowsPreflightParts(plan, t)); }
+export function* windowsPreflightParts(plan: CommandPlan, t: Translate): Generator<void, string[]> {
   const { sources, opaqueInputs, outputs } = batchPaths(plan);
   if (!outputs.length) { return []; }
   const windows = plan.context.platform === 'windows';
@@ -77,6 +79,7 @@ export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
   }
   // Fixed names must be reserved before any of the automatic names can be advanced.
   for (const { task, index } of [...outputs.filter(x => !incrementalNaming(x.task.naming)), ...outputs.filter(x => incrementalNaming(x.task.naming))]) {
+    yield;
     lines.push(`$p = [IO.Path]::GetFullPath(${psPath(psQuote(task.output))})`);
     if (incrementalNaming(task.naming)) {
       const { base, digits, ext } = serial(task, pathStyle(plan.context.platform));
@@ -106,7 +109,8 @@ export function windowsPreflight(plan: CommandPlan, t: Translate): string[] {
   return lines;
 }
 
-export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
+export function posixPreflight(plan: CommandPlan, t: Translate): string[] { return finish(posixPreflightParts(plan, t)); }
+export function* posixPreflightParts(plan: CommandPlan, t: Translate): Generator<void, string[]> {
   const { sources, opaqueInputs, outputs } = batchPaths(plan);
   if (!outputs.length) { return []; }
   const parents = new Map<string, number>();
@@ -196,6 +200,7 @@ export function posixPreflight(plan: CommandPlan, t: Translate): string[] {
   const series = new Map<string, string>();
   const ranges = new Map<string, number>();
   for (const { task, index } of [...outputs.filter(x => !incrementalNaming(x.task.naming)), ...outputs.filter(x => incrementalNaming(x.task.naming))]) {
+    yield;
     const resolve = `forge_key "$forge_target" ${parentSlot(task.output)}`;
     lines.push(`forge_target=${posixQuote(task.output)}`, resolve);
     if (incrementalNaming(task.naming)) {

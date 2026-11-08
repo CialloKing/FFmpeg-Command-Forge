@@ -1,7 +1,8 @@
 import type { CommandPlan, CommandStage, Issue, RenderedPlan, ScriptFile, Shell } from './types';
 import { windowsQuote } from './arguments';
 import { sourceText, type Translate } from './i18n';
-import { posixPreflight, posixQuote, psPath, psQuote, windowsPreflight } from './preflight';
+import { posixPreflightParts, posixQuote, psPath, psQuote, windowsPreflightParts } from './preflight';
+import { finish, finishAsync, type WorkOptions } from './scheduling';
 import { extension, pathStyle, withoutExtension } from './paths';
 
 export { posixQuote, psQuote };
@@ -20,10 +21,10 @@ function processStatement(executable: string, argumentExpression: string, t: Tra
   const exe = /[\\/]/.test(executable) ? psPath(psQuote(executable)) : psQuote(executable);
   return `$forgeStart = New-Object System.Diagnostics.ProcessStartInfo; $forgeStart.FileName = ${exe}; $forgeStart.Arguments = ${argumentExpression}; $forgeStart.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath; $forgeStart.UseShellExecute = $false; $forgeStart.CreateNoWindow = $true; $forgeStart.RedirectStandardOutput = $true; $forgeStart.RedirectStandardError = $true; $forgeProcess = [System.Diagnostics.Process]::Start($forgeStart); $forgeStdout = $forgeProcess.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput()); $forgeStderr = $forgeProcess.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError()); $forgeProcess.WaitForExit(); [void]$forgeStdout.GetAwaiter().GetResult(); [void]$forgeStderr.GetAwaiter().GetResult(); $forgeCode = $forgeProcess.ExitCode; $forgeProcess.Dispose(); if ($forgeCode -ne 0) { throw (${psQuote(t('进程失败：'))} + $forgeCode) }`;
 }
-function windowsStatements(plan: CommandPlan, legacy: boolean, t: Translate): string[] {
+function* windowsStatements(plan: CommandPlan, legacy: boolean, t: Translate): Generator<void, string[]> {
   const lines = ["$ErrorActionPreference = 'Stop'"];
   if (plan.context.cwd) { lines.push(`Set-Location -LiteralPath ${psQuote(plan.context.cwd)}`); }
-  lines.push(...windowsPreflight(plan, t));
+  lines.push(...(yield* windowsPreflightParts(plan, t)));
   if (plan.tasks.some(task => task.stagedOutput || task.stages.some(stage => stage.passlogArg !== undefined))) {
     lines.push("function New-ForgeScratch($parent) { $name = '.forge-' + [guid]::NewGuid().ToString('N'); (New-Item -ItemType Directory -Path ([IO.Path]::Combine($parent,$name))).FullName }");
   }
@@ -35,6 +36,7 @@ function windowsStatements(plan: CommandPlan, legacy: boolean, t: Translate): st
     lines.push(`function Publish-ForgeOutput($staged,$target,$expected) { if (!$expected) { [IO.File]::Move($staged,$target); return }; $item = Get-Item -LiteralPath $target -Force; if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or (Get-ForgeId $target) -cne $expected) { throw (${psQuote(t('输出在转码期间发生变化：'))} + $target) }; ${move} }`);
   }
   for (const [index, task] of plan.tasks.entries()) {
+    yield;
     const usesOutput = task.managedOutput;
     const scratch = task.stagedOutput || task.stages.some(stage => stage.passlogArg !== undefined);
     const temporary = scratch || task.assets.length;
@@ -90,11 +92,11 @@ function windowsStatements(plan: CommandPlan, legacy: boolean, t: Translate): st
   return lines;
 }
 function b64(bytes: Uint8Array): string { let result = ''; for (let i = 0; i < bytes.length; i += 8192) { result += String.fromCharCode(...bytes.subarray(i, i + 8192)); } return btoa(result); }
-function posixScript(plan: CommandPlan, t: Translate): string {
+function* posixScript(plan: CommandPlan, t: Translate): Generator<void, string> {
   const lines = [`#!/usr/bin/env ${plan.context.shell === 'zsh' ? 'zsh' : 'bash'}`, t('# FFmpeg Command Forge · 任何阶段失败都会停止，保留已有输出。'), '('];
   const fail = ' || { forge_exit_code=$?; exit "$forge_exit_code"; }';
   if (plan.context.cwd) { lines.push(`cd -- ${posixQuote(plan.context.cwd)}${fail}`); }
-  lines.push(...posixPreflight(plan, t));
+  lines.push(...(yield* posixPreflightParts(plan, t)));
   if (plan.tasks.some(task => task.stagedOutput)) {
     const replace = plan.context.platform === 'macos'
       ? '  /usr/bin/perl -e \'rename($ARGV[0],$ARGV[1]) or die "$!\\n"\' -- "$1" "$2"'
@@ -106,6 +108,7 @@ function posixScript(plan: CommandPlan, t: Translate): string {
       '  fi', replace, '}');
   }
   for (const [index, task] of plan.tasks.entries()) {
+    yield;
     const usesOutput = task.managedOutput;
     const scratch = task.stagedOutput || task.stages.some(stage => stage.passlogArg !== undefined);
     const temporary = scratch || task.assets.length;
@@ -151,22 +154,25 @@ function posixScript(plan: CommandPlan, t: Translate): string {
   }
   lines.push(')', ''); return lines.join('\n');
 }
-export function renderPlan(plan: CommandPlan, t: Translate = sourceText): RenderedPlan {
+export function renderPlan(plan: CommandPlan, t: Translate = sourceText): RenderedPlan { return finish(renderPlanParts(plan, t)); }
+export function renderPlanAsync(plan: CommandPlan, t: Translate = sourceText, options: WorkOptions = {}): Promise<RenderedPlan> { return finishAsync(renderPlanParts(plan, t), options); }
+function* renderPlanParts(plan: CommandPlan, t: Translate): Generator<void, RenderedPlan> {
   const { shell } = plan.context, issues: Issue[] = [], allStages = plan.tasks.flatMap(t => t.stages);
-  const stageCommands = allStages.map(stage => renderCommand(stage, shell, false, t));
+  const stageCommands: string[] = [];
+  for (const stage of allStages) { yield; stageCommands.push(renderCommand(stage, shell, false, t)); }
   const commands = stageCommands.join('\n');
   const prefix = shell === 'cmd' ? 'REM ' : '# ';
   const stages = allStages.map((stage, i) => `${prefix}${stage.name}\n${stageCommands[i]}`).join('\n\n');
   let script: string, download: ScriptFile, bundleScripts: ScriptFile[], copyable = true;
   const assets = plan.tasks.flatMap(t => t.assets.map(a => ({ path: a.path, content: a.content })));
   if (shell === 'bash' || shell === 'zsh') {
-    script = posixScript(plan, t);
+    script = yield* posixScript(plan, t);
     download = { name: 'forge-task.' + (shell === 'zsh' ? 'zsh' : 'sh'), content: script };
     bundleScripts = [download];
   }
   else if (shell === 'cmd') {
     // CMD delegates the complete helper transaction to the system PowerShell; plain FFmpeg commands remain native CMD.
-    const statements = windowsStatements(plan, true, t);
+    const statements = yield* windowsStatements(plan, true, t);
     const source = '& { ' + statements.join('; ') + ' }';
     const stage: CommandStage = { name: '', taskId: '', kind: 'single', graph: '', maps: [], executable: 'powershell.exe', args: ['-NoProfile', '-Command', source] };
     script = renderCommand(stage, 'cmd');
@@ -181,7 +187,7 @@ export function renderPlan(plan: CommandPlan, t: Translate = sourceText): Render
     const launcher = '"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -File "%~dp0forge-task.ps1"';
     bundleScripts = [{ name: 'forge-task.cmd', content: cmdBatch(launcher) }, ps1];
   } else {
-    script = '& {\n' + windowsStatements(plan, shell === 'powershell5', t).join('\n') + '\n}\n';
+    script = '& {\n' + (yield* windowsStatements(plan, shell === 'powershell5', t)).join('\n') + '\n}\n';
     download = powershellFile(script);
     bundleScripts = [download];
   }

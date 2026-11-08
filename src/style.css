@@ -57,3 +57,6 @@ input,textarea{width:100%;border:1px solid var(--border);border-radius:6px;backg
 .toolbar { flex-wrap:wrap; justify-content:flex-end; }
 .diff-values { white-space:pre-wrap; overflow-wrap:anywhere; max-height:360px; overflow:auto; }
 .field-reset { margin-top:4px; gap:4px; }
+#command.unwrapped { white-space:pre; overflow-wrap:normal; word-break:normal; }
+.terminal-top { flex-wrap:wrap; gap:6px; }
+.preview-chunk { display:block; content-visibility:auto; contain-intrinsic-size:auto 600px; }

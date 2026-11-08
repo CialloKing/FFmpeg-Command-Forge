@@ -7,6 +7,36 @@ import { parseArguments, windowsQuote } from '../src/arguments';
 import { argumentReads } from '../src/arguments';
 import { dirname, filename, pathKey, relativeSubdirectory, seconds, stem, substitute } from '../src/paths';
 import ffmpegFull from '../src/data/ffmpeg-full-2026.11.3.json';
+import { renderPlan, renderPlanAsync } from '../src/render';
+import type { Shell } from '../src/types';
+import { createArchive } from '../src/archive';
+import { unzipSync } from 'fflate';
+
+test('流式任务包保留跨块 Unicode 和原始字节，不消耗调用方快照', async () => {
+  const content = 'x'.repeat(32767) + '😀中文'.repeat(7000), bytes = new Uint8Array([0, 1, 255]);
+  const archive = await createArchive({ '中文.txt': content, 'bytes': bytes }, { budgetMs: 0, yield: async () => {} });
+  const files = unzipSync(archive);
+  assert.equal(new TextDecoder().decode(files['中文.txt']), content);
+  assert.deepEqual(files.bytes, bytes); assert.equal(bytes.byteLength, 3);
+});
+
+test('分段构建及渲染保持全部终端输出等价，支持执行中取消', async () => {
+  const doc = importPreset({ 输出容器: 'mkv', 视频参数_编码器_具体编码: 'libx264', 视频参数_比特率_控制方式: 'TPE', 视频参数_比特率_基础: '200k' });
+  for (const shell of ['powershell', 'powershell5', 'cmd', 'bash', 'zsh'] as Shell[]) {
+    const context = defaultContext(); context.shell = shell; context.platform = shell === 'zsh' ? 'macos' : shell === 'bash' ? 'linux' : 'windows';
+    context.inputs = Array.from({ length: 8 }, (_, i) => ({ id: String(i), path: `input-${i}.mp4` }));
+    const plan = await buildPlan(doc, context);
+    let yields = 0;
+    const options = { budgetMs: 0, yield: async () => { yields++; } };
+    assert.deepEqual(await buildPlan(doc, context, undefined, false, options), plan);
+    assert.deepEqual(await renderPlanAsync(plan, undefined, options), renderPlan(plan));
+    assert.ok(yields > 20);
+    const controller = new AbortController();
+    const cancel = { budgetMs: 0, signal: controller.signal, yield: async () => { controller.abort(); } };
+    await assert.rejects(buildPlan(doc, context, undefined, false, cancel), { name: 'AbortError' });
+    await assert.rejects(renderPlanAsync(plan, undefined, cancel), { name: 'AbortError' });
+  }
+});
 
 test('预设往返保留原始嵌套数据，未知内容阻断执行', async () => {
   const raw = { 预设文件版本: 6, 视频参数_比特率_控制方式: 3, 自定义扩展: { future: 'keep' }, 元数据_要写入的信息: [{ 字段: 'title', 值: '中文', 扩展: 'keep too' }] };

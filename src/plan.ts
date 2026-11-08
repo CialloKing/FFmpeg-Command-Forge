@@ -8,6 +8,7 @@ import { extraOutputs } from './extra';
 import { add, argumentReads, presetArguments } from './arguments';
 import { dirname, extension, filename, filterOptionValue, filterPath, formatSeconds, isAbsolute, isPlaceholder, isPresetPathField, isProtocol, join, pathKey, pathStyle, relativeSubdirectory, seconds, splitTrailingSerial, stem, windowsAbsolute, withoutExtension } from './paths';
 import { sourceText, type Translate } from './i18n';
+import { createCheckpoint, mapScheduled, type WorkOptions } from './scheduling';
 
 export function defaultContext(): ExecutionContext {
   const now = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
@@ -110,7 +111,9 @@ async function passlog(input: string, output: string, c: ExecutionContext): Prom
   const token = [...new Uint8Array(hash).slice(0, 6)].map(n => n.toString(16).padStart(2, '0')).join('');
   return join(dirname(input, pathStyle(c.platform)) || c.cwd || '.', `3fui-v6-passlog-${(stem(input, pathStyle(c.platform)) || 'input').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}-${token}`, c.platform === 'windows' ? input : 'posix');
 }
-export async function buildPlan(doc: PresetDocument, context: ExecutionContext, t: Translate = sourceText, allowOverwrite = false): Promise<CommandPlan> {
+export async function buildPlan(doc: PresetDocument, context: ExecutionContext, t: Translate = sourceText, allowOverwrite = false, options: WorkOptions = {}): Promise<CommandPlan> {
+  const checkpoint = createCheckpoint(options);
+  options.signal?.throwIfAborted();
   const c = clone(context), a = clone(doc.normalized), issues: Issue[] = [...doc.issues], tasks: PlannedTask[] = [], probes: CommandStage[] = [], unconfirmed: { path: string; field: FieldPath }[] = [];
   const style = pathStyle(c.platform);
   c.cwd = mapPath(c.cwd, c);
@@ -170,7 +173,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   const argumentFields = ['开头参数', '之前参数', '之后参数', '最后参数', '视频参数', '音频参数'].map(name => a['自定义参数_' + name]);
   const literalMapping = c.pathMappings.length ? (arg: string) => mapPath(arg, c) : undefined;
   const autoSubtitle = ['SRT', 'ASS', 'SSA'].some(k => a['流控制_自动混流' + k]);
-  const inputs = c.inputs.map(task => {
+  const inputs = await mapScheduled(c.inputs, task => {
     const input = executionPath(task.path.trim());
     const external = task.subtitle ? executionPath(task.subtitle) : undefined;
     const sidecars = autoSubtitle ? (task.sidecars || []).filter(file => a['流控制_自动混流' + extension(file, style).slice(1).toUpperCase()]).map(executionPath) : [];
@@ -195,14 +198,14 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
       reads.push(...a.视频参数_超分_滤镜叠加策略组.map((item: Preset) => item.着色器文件路径).filter(Boolean));
     }
     return { task, input, external, sidecars, parsed, opaqueReads, reads: [...new Set(reads.filter(Boolean))] };
-  });
+  }, checkpoint);
   const sourceTasks = new Map(inputs.flatMap(({ reads }, i) => reads.filter(localFile).map(path => [key(path), i + 1] as const)));
   const used = new Set<string>();
   const serialRanges = new Map<string, [bigint, bigint]>();
   const fixedTasks = new Map<string, number>();
   const outputDirectory = executionPath(c.outputDirectory) || a.输出位置 || a.输出目录;
   if (!c.inputs.length) { problem('missing', t('请添加至少一个输入文件'), contextTarget(['inputs'])); }
-  const entries = inputs.map((entry, i) => {
+  const entries = await mapScheduled(inputs, (entry, i) => {
     const { task } = entry;
     const input = entry.input || t('<输入文件>');
     if (!task.path.trim()) { problem('missing', t('请填写输入文件的实际执行路径'), contextTarget(['path'], task.id)); }
@@ -230,10 +233,11 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
       fixedTasks.set(id, i + 1);
     }
     return { ...entry, input, candidateStem, naming, base, suffix, fixed };
-  });
+  }, checkpoint);
   for (const id of sourceTasks.keys()) { used.add(id); }
   for (const id of fixedTasks.keys()) { used.add(id); }
   for (const { task, input, external, sidecars, reads, parsed, candidateStem, naming, base, suffix, fixed, opaqueReads } of entries) {
+    const pause = checkpoint(); if (pause) { await pause; }
     const output = incrementalNaming(naming) ? uniqueOutput(base, suffix, naming, managed ? used : new Set(), key, managed ? serialRanges : new Map()) : fixed;
     if (c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(output)) { problem('missing', t('指定输出文件仍是 Windows 路径，请显式映射到目标系统'), contextTarget(['output'], task.id)); }
     if (!custom) {
@@ -338,5 +342,6 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
     }
   }
   const uniqueIssues = [...new Map(issues.map(i => [issueKey(i), i])).values()];
+  options.signal?.throwIfAborted();
   return { status: uniqueIssues.some(i => i.level === 'error') ? 'incompatible' : uniqueIssues.some(i => i.level === 'missing') ? 'missing' : 'ready', issues: uniqueIssues, tasks, probes, context: c, preset: a, allowOverwrite: allowOverwrite && !opaque };
 }
