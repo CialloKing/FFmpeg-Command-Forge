@@ -5,7 +5,9 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import path from 'node:path';
 import { buildPlan, defaultContext } from '../src/plan';
 import { importPreset } from '../src/preset';
-import { importProbeReport, parseReport, reportScripts, reportText } from '../src/reports';
+import { environmentIssues, importProbeReport, parseReport, reportScripts, reportText, type ReportKind } from '../src/reports';
+import { createEditorState } from '../src/editor-state';
+import { sourceText } from '../src/i18n';
 import type { Shell } from '../src/types';
 import { gitBash, pwsh } from './runtime';
 
@@ -24,8 +26,9 @@ test('批量探测脚本真实执行并隔离失败项目，报告严格绑定�
     // MSYS 不作为原生 POSIX 路径验收；用调用目录下的相对路径验证报告封装。
     c.cwd = windows && c.platform === 'linux' ? '' : dir;
     c.inputs = [{ id: 'ok', path: input }, { id: 'fail', path: 'missing.mkv' }];
-    const plan = await buildPlan(importPreset({ 输出容器: 'mkv' }), c);
-    const scripts = reportScripts(plan, 'probes');
+    const plan = await buildPlan(importPreset({ 输出容器: 'mkv', 视频参数_编码器_具体编码: 'libx264', 视频参数_分辨率: '16x16' }), c);
+    for (const kind of ['probes', 'environment'] as ReportKind[]) {
+    const scripts = reportScripts(plan, kind);
     for (const script of scripts) { writeFileSync(path.join(dir, script.name), script.content); }
     let exe: string, args: string[];
     if (shell === 'cmd') { exe = 'cmd.exe'; args = ['/d', '/v:off', '/c', path.join(dir, scripts[0].name)]; }
@@ -34,14 +37,27 @@ test('批量探测脚本真实执行并隔离失败项目，报告严格绑定�
     const before = new Set(readdirSync(dir));
     const result = spawnSync(exe, args, { cwd: dir, encoding: 'utf8', timeout: 30000 });
     assert.equal(result.status, 0, result.stderr + result.stdout);
-    const folder = readdirSync(dir).find(name => name.startsWith('forge-probe.') || name.startsWith('forge-probe-') ? !before.has(name) : false)!;
+    const prefix = kind === 'probes' ? 'forge-probe' : 'forge-environment';
+    const folder = readdirSync(dir).find(name => name.startsWith(prefix + '.') || name.startsWith(prefix + '-') ? !before.has(name) : false)!;
     const raw = JSON.parse(readFileSync(path.join(dir, folder, 'report.json'), 'utf8'));
-    const report = parseReport(raw, 'probes');
+    const report = parseReport(raw, kind);
+    if (kind === 'environment') {
+      assert.deepEqual(environmentIssues(plan, report), []);
+      const incomplete = structuredClone(report);
+      incomplete.results.find(row => row.key === 'encoders')!.stdoutBase64 = '';
+      assert.ok(environmentIssues(plan, incomplete).some(issue => issue.level === 'info' && issue.message.includes('libx264')));
+      assert.equal(environmentIssues(plan, { ...report, executable: 'other-ffmpeg' }).length, 1);
+      const state = createEditorState(() => sourceText); state.setEnvironmentReport(report);
+      const saved = JSON.stringify(state.snapshot()); state.reset(); state.restore(saved);
+      assert.deepEqual(state.environmentReport, report);
+      continue;
+    }
     const imported = importProbeReport(report, c);
     assert.equal(imported.updates.length, 1); assert.equal(imported.failed, 1);
     assert.ok(JSON.parse(reportText(report.results[0].stdoutBase64)).streams.length);
     c.inputs[0].path = 'changed.mkv';
     assert.equal(importProbeReport(report, c).updates.length, 0);
     assert.throws(() => parseReport({ ...raw, results: [raw.results[0], raw.results[0]] }, 'probes'));
+    }
   }
 });

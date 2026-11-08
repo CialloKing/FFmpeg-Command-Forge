@@ -361,3 +361,4 @@ console.log(`${channel ? 'Edge' : 'Chromium'} 本地文件离线验收通过：�
 
 await import('./browser-editor-check.mjs');
 await import('./browser-reliability-check.mjs');
+await import('./browser-report-check.mjs');

@@ -12,7 +12,7 @@ import { subtitleCandidates } from './filters';
 import { filename, isPresetPathField, pathStyle } from './paths';
 import { isProbeData } from './workspace';
 import { createPersistence, type SaveState } from './persistence';
-import { importProbeReport, parseReport, reportScripts, type ReportKind } from './reports';
+import { environmentIssues, importProbeReport, parseReport, reportScripts, type ReportKind } from './reports';
 import { contextTarget, targetKey } from './diagnostics';
 import { detectLocale, parameterLabel, presetText, translator, type Locale } from './i18n';
 import type { CommandPlan, ExecutionContext, FieldPath, InputTask, IssueTarget, Preset, RenderedPlan, Shell } from './types';
@@ -176,7 +176,7 @@ function schedule(save: 'deferred' | 'immediate' | false = 'deferred'): void {
   const overwrite = document.querySelector<HTMLInputElement>('#allow-overwrite');
   if (overwrite) { overwrite.checked = state.allowOverwrite; }
   renderUndo();
-  document.querySelectorAll<HTMLButtonElement>('[data-copy-probe]').forEach(button => { button.disabled = true; });
+  document.querySelectorAll<HTMLButtonElement>('[data-copy-probe], [data-download-report]').forEach(button => { button.disabled = true; });
   generation++; currentPlan = undefined; currentRendered = undefined;
   $('#stream-summary').hidden = true;
   $('#copy-preview').setAttribute('disabled', ''); $('#copy-final').setAttribute('disabled', ''); $('#download-script').setAttribute('disabled', ''); $('#download-zip').setAttribute('disabled', '');
@@ -188,9 +188,11 @@ async function recompute(): Promise<void> {
   const id = ++generation;
   try {
     const plan = await buildPlan(state.doc, state.context, t, state.allowOverwrite); if (id !== generation) { return; }
+    plan.issues.push(...environmentIssues(plan, state.environmentReport, t));
     if (state.mappingErrors.length) { plan.status = 'incompatible'; plan.issues.push({ level: 'error', message: mappingErrorText(), target: contextTarget(['pathMappings']) }); }
     currentPlan = plan; currentRendered = renderPlan(plan, t); renderOutput();
     document.querySelectorAll<HTMLButtonElement>('[data-copy-probe]').forEach(button => { button.disabled = !!state.mappingErrors.length; });
+    document.querySelectorAll<HTMLButtonElement>('[data-download-report]').forEach(button => { button.disabled = !!state.mappingErrors.length || button.dataset.downloadReport === 'probes' && state.context.inputs.some(task => !task.path.trim()); });
     const tasks = new Map(state.context.inputs.map(task => [task.id, task]));
     for (const detail of document.querySelectorAll<HTMLElement>('[data-probe-task]')) {
       const task = tasks.get(detail.dataset.probeTask!);
@@ -248,6 +250,11 @@ function refreshTaskCard(id: string): void {
   if (block && index >= 0) { block.replaceWith(taskCard(state.context.inputs[index], index)); }
 }
 function refreshTaskList(): void { document.querySelector('#input-tasks')?.replaceWith(taskList()); }
+function reportButton(kind: ReportKind): HTMLButtonElement {
+  const node = button(t(kind === 'probes' ? '下载批量探测脚本' : '下载环境检测脚本'), () => downloadReport(kind), 'small ghost');
+  node.dataset.downloadReport = kind; node.disabled = !currentPlan || !!state.mappingErrors.length;
+  return node;
+}
 function downloadReport(kind: ReportKind): void {
   if (!currentPlan || state.mappingErrors.length || kind === 'probes' && state.context.inputs.some(task => !task.path.trim())) {
     toast(t('请先填写有效路径并等待计划完成')); return;
@@ -338,6 +345,18 @@ function environment(): HTMLElement {
   const overwriteField = labeled(t('允许本批脚本覆盖已有输出'), overwrite, t('递增命名仍会避让已有文件。命令预览始终使用防覆盖模式。'));
   overwriteField.classList.add('boolean'); overwriteField.prepend(overwrite);
   card.append(grid, overwriteField);
+  const environmentReport = el('div', 'note stack');
+  environmentReport.append(row(reportButton('environment'),
+    button(t('导入环境报告'), () => pick('.json', (_file, text) => {
+      state.setEnvironmentReport(parseReport(JSON.parse(text.replace(/^\uFEFF/, '')), 'environment', t)); schedule(); renderEditor();
+    }), 'small ghost')));
+  const report = state.environmentReport;
+  if (report) {
+    environmentReport.append(el('small', '', t('报告采集于 {0} · {1} · {2}', report.capturedAt, report.platform, report.executable)),
+      button(t('移除环境报告'), () => { state.setEnvironmentReport(); schedule(); renderEditor(); }, 'small ghost'));
+  } else { environmentReport.append(el('small', '', t('尚未导入环境报告，不影响命令导出'))); }
+  environmentReport.append(el('small', '', t('环境报告仅供参考，硬件组件列表不代表驱动和设备已经验证。')));
+  card.append(issueTarget(environmentReport, contextTarget(['environmentReport'])));
   content.append(heading(t('执行环境'), '01'), card, heading(t('输入文件'), '02'));
   const note = el('p', 'note', t('粘贴实际路径，或使用“工作目录 + 相对文件名”。拖入文件只取得文件名，不会把浏览器的虚拟路径当作本机路径。')); content.append(note);
   content.append(taskList());
@@ -352,7 +371,7 @@ function environment(): HTMLElement {
   };
   const addTasks = row(button(t('+ 添加输入'), () => appendPaths([''])), button(t('批量粘贴路径'), () => openTextDialog(t('每行一个输入文件路径'), '', text => appendPaths(text.split(/\r?\n/).map(x => x.trim()).filter(Boolean).map(p => p.replace(/^"(.*)"$/, '$1')), true)), 'ghost'));
   content.append(issueTarget(addTasks, contextTarget(['inputs'])));
-  content.append(row(button(t('下载批量探测脚本'), () => downloadReport('probes'), 'small'), button(t('导入批量探测结果'), importBatchProbes, 'small')));
+  content.append(row(reportButton('probes'), button(t('导入批量探测结果'), importBatchProbes, 'small')));
   content.append(heading(t('预设路径与资源'), '03'));
   const mappingCard = el('div', 'card stack'), mappings = el('textarea', 'mono'); mappings.value = state.drafts.pathMappings; mappings.placeholder = t('例如 {0}', 'D:\\Media => /Volumes/Media');
   const mappingError = el('p', 'error-message'); mappingError.setAttribute('role', 'status');

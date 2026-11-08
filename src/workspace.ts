@@ -1,4 +1,5 @@
 import { importPreset } from './preset';
+import { parseReport } from './reports';
 import type { Translate } from './i18n';
 import type { ExecutionContext, InputTask, Platform, ProbeData, Shell } from './types';
 
@@ -83,9 +84,10 @@ export function parseWorkspace(value: unknown, t: Translate) {
   };
   const doc = importPreset(record(value.preset, 'preset'), t);
   const baseline = value.version === 3 ? importPreset(record(value.baselinePreset, 'baselinePreset'), t) : importPreset(doc.raw, t);
+  const environmentReport = value.version === 3 && value.environmentReport !== undefined ? parseReport(value.environmentReport, 'environment', t) : undefined;
   const drafts = { pathMappings: value.version === 1 ? pathMappings.map(m => m.from + ' => ' + m.to).join('\n') :
     string(record(value.drafts, 'drafts').pathMappings, 'drafts.pathMappings') };
   const parsed = parseMappingDraft(drafts.pathMappings);
   if (!parsed.invalidLines.length) { context.pathMappings = parsed.mappings; }
-  return { context, doc, baseline, drafts, theme: value.theme === 'light' ? 'light' : 'dark' };
+  return { context, doc, baseline, environmentReport, drafts, theme: value.theme === 'light' ? 'light' : 'dark' };
 }

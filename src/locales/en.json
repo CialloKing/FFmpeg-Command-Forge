@@ -304,5 +304,16 @@
   "预设变更摘要": "Preset changes",
   "参数有效值没有变化": "Effective parameter values are unchanged.",
   "当前值": "Current value",
-  "候选值": "Candidate value"
+  "候选值": "Candidate value",
+  "下载环境检测脚本": "Download environment check script",
+  "导入环境报告": "Import environment report",
+  "移除环境报告": "Remove environment report",
+  "报告采集于 {0} · {1} · {2}": "Captured {0} · {1} · {2}",
+  "尚未导入环境报告，不影响命令导出": "No environment report imported. Commands can still be exported.",
+  "环境报告仅供参考，硬件组件列表不代表驱动和设备已经验证。": "Environment reports are advisory. Listed hardware components do not verify drivers or devices.",
+  "环境报告与当前系统或 FFmpeg 路径不匹配，检查结果未应用": "The report does not match the current platform or FFmpeg path. Its checks were not applied.",
+  "环境查询失败：{0}": "Environment query failed: {0}",
+  "环境报告未列出所需编码器：{0}": "The environment report does not list the required encoder: {0}",
+  "环境报告未列出所需滤镜：{0}": "The environment report does not list the required filter: {0}",
+  "自定义参数或滤镜的依赖未检查，请在目标机器确认": "Dependencies of custom arguments or filters were not checked. Verify them on the target machine."
 }

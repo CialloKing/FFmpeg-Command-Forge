@@ -1,6 +1,7 @@
 import { clone, importPreset } from './preset';
 import { defaultContext } from './plan';
 import { parseMappingDraft, parseWorkspace } from './workspace';
+import { parseReport, type ToolReport } from './reports';
 import type { Translate } from './i18n';
 import type { ExecutionContext, FieldPath, InputTask, Preset } from './types';
 
@@ -9,13 +10,14 @@ export function createEditorState(translate: () => Translate) {
   const read = (input?: string | Preset) => importPreset(input, translate());
   let doc = read(), context = defaultContext(), theme = 'dark', allowOverwrite = false;
   let baseline = read(doc.raw);
+  let environmentReport: ToolReport | undefined;
   let drafts = { pathMappings: '' }, mappingErrors: number[] = [];
   let revision = 0, importSequence = 0;
-  const checkpoint = () => clone({ preset: doc.raw, baselinePreset: baseline.raw, context, drafts });
+  const checkpoint = () => clone({ preset: doc.raw, baselinePreset: baseline.raw, context, drafts, environmentReport });
   let undoEntry: { label: string; before: ReturnType<typeof checkpoint> } | undefined;
   const changed = () => { revision++; undoEntry = undefined; allowOverwrite = false; };
   function restoreCheckpoint(before: ReturnType<typeof checkpoint>): void {
-    doc = read(before.preset); baseline = read(before.baselinePreset); context = before.context; drafts = before.drafts;
+    doc = read(before.preset); baseline = read(before.baselinePreset); context = before.context; drafts = before.drafts; environmentReport = before.environmentReport;
     mappingErrors = parseMappingDraft(drafts.pathMappings).invalidLines;
   }
   function updatePreset(update: (raw: Preset) => void): void {
@@ -26,6 +28,8 @@ export function createEditorState(translate: () => Translate) {
   return {
     get doc() { return doc; },
     get baseline() { return baseline; },
+    get environmentReport() { return environmentReport; },
+    setEnvironmentReport(value?: ToolReport) { environmentReport = value === undefined ? undefined : clone(parseReport(value, 'environment', translate())); changed(); },
     get context() { return context; },
     get theme() { return theme; },
     get allowOverwrite() { return allowOverwrite; },
@@ -100,13 +104,14 @@ export function createEditorState(translate: () => Translate) {
     // 授权不是方案编辑；不能使刚授予的权限或待导入结果立即失效。
     setOverwrite(value: boolean) { allowOverwrite = value; },
     localize() { doc = read(doc.raw); },
-    reset() { doc = read(); baseline = read(doc.raw); context = defaultContext(); drafts = { pathMappings: '' }; mappingErrors = []; allowOverwrite = false; changed(); },
+    reset() { doc = read(); baseline = read(doc.raw); environmentReport = undefined; context = defaultContext(); drafts = { pathMappings: '' }; mappingErrors = []; allowOverwrite = false; changed(); },
     restore(text: string) {
       // 完整验证成功后才替换工作区，失败时保留当前编辑内容。
       const workspace = parseWorkspace(JSON.parse(text.replace(/^\uFEFF/, '')), translate());
       doc = workspace.doc; baseline = workspace.baseline; context = workspace.context; theme = workspace.theme; drafts = workspace.drafts;
+      environmentReport = workspace.environmentReport;
       mappingErrors = parseMappingDraft(drafts.pathMappings).invalidLines; allowOverwrite = false; changed();
     },
-    snapshot() { return { format: 'ffmpeg-command-forge/workspace', version: 3, preset: doc.raw, baselinePreset: baseline.raw, context, drafts, theme }; }
+    snapshot() { return { format: 'ffmpeg-command-forge/workspace', version: 3, preset: doc.raw, baselinePreset: baseline.raw, context, drafts, theme, ...(environmentReport ? { environmentReport } : {}) }; }
   };
 }

@@ -3,7 +3,7 @@ import { psQuote, posixQuote, cmdBatch } from './render';
 import { pathKey } from './paths';
 import { resolvedInput } from './plan';
 import { isProbeData } from './workspace';
-import type { CommandPlan, ExecutionContext, InputTask, Platform, ScriptFile } from './types';
+import type { CommandPlan, ExecutionContext, InputTask, Issue, Platform, ScriptFile } from './types';
 import { sourceText, type Translate } from './i18n';
 
 export type ReportKind = 'probes' | 'environment';
@@ -50,6 +50,45 @@ export function importProbeReport(report: ToolReport, context: ExecutionContext)
     } catch { failed++; }
   }
   return { updates, failed, skipped };
+}
+
+export function environmentIssues(plan: CommandPlan, report: ToolReport | undefined, t: Translate = sourceText): Issue[] {
+  const info = (message: string): Issue => ({ level: 'info', message, target: { scope: 'context', path: ['environmentReport'] } });
+  if (!report) { return []; }
+  const c = plan.context;
+  if (report.platform !== c.platform || pathKey(report.executable, c.platform === 'windows') !== pathKey(c.ffmpeg, c.platform === 'windows')) {
+    return [info(t('环境报告与当前系统或 FFmpeg 路径不匹配，检查结果未应用'))];
+  }
+  const results = new Map(report.results.map(entry => [entry.key, entry]));
+  const issues: Issue[] = [];
+  for (const entry of report.results) { if (entry.exitCode !== 0) { issues.push(info(t('环境查询失败：{0}', entry.key))); } }
+  const list = (key: string, pattern: RegExp) => new Set(reportText(results.get(key)!.stdoutBase64).split(/\r?\n/).flatMap(line => line.match(pattern)?.[1] ?? []));
+  const encoders = list('encoders', /^\s*[VAS][A-Z.]{5}\s+([\w.-]+)\s/), filters = list('filters', /^\s*[TSC.]{2,3}\s+([\w.-]+)\s/);
+  const requiredEncoders = new Set<string>(), requiredFilters = new Set<string>();
+  const a = plan.preset;
+  const custom = Object.keys(a).some(key => key.startsWith('自定义参数_') && String(a[key]).trim()) || a.滤镜排序系统.some((filter: any) => filter.是自定义滤镜);
+  // 只分割滤镜图语法中的分隔符，路径和表达式里的转义逗号不代表新滤镜。
+  const scanFilters = (graph: string) => {
+    let token = '', quoted = false, escaped = false;
+    const collect = () => { const name = token.replace(/^(?:\s*\[[^\]]*\])+\s*/, '').trim().match(/^([A-Za-z0-9_]+)(?:[=@]|$)/)?.[1]; if (name) { requiredFilters.add(name); } token = ''; };
+    for (const char of graph) {
+      if (escaped) { token += char; escaped = false; continue; }
+      if (char === '\\') { token += char; escaped = true; continue; }
+      if (char === "'") { quoted = !quoted; }
+      if (!quoted && (char === ',' || char === ';')) { collect(); } else { token += char; }
+    }
+    collect();
+  };
+  for (const task of plan.tasks) { for (const stage of task.stages) {
+    stage.args.forEach((arg, index) => {
+      if (/^-(?:c|codec)(?::.*)?$/.test(arg) && stage.args[index + 1] !== 'copy') { requiredEncoders.add(stage.args[index + 1]); }
+      if (!custom && /^-(?:vf|af|filter(?::[va](?::.*)?)?|filter_complex)$/.test(arg)) { scanFilters(stage.args[index + 1] ?? ''); }
+    });
+  } }
+  if (results.get('encoders')!.exitCode === 0) { for (const name of requiredEncoders) { if (!encoders.has(name)) { issues.push(info(t('环境报告未列出所需编码器：{0}', name))); } } }
+  if (results.get('filters')!.exitCode === 0) { for (const name of requiredFilters) { if (!filters.has(name)) { issues.push(info(t('环境报告未列出所需滤镜：{0}', name))); } } }
+  if (custom) { issues.push(info(t('自定义参数或滤镜的依赖未检查，请在目标机器确认'))); }
+  return issues;
 }
 
 export function reportScripts(plan: CommandPlan, kind: ReportKind, t: Translate = sourceText): ScriptFile[] {
