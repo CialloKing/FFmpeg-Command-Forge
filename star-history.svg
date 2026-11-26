@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 720 360" role="img" aria-labelledby="title desc">
   <title id="title">CialloKing/FFmpeg-Command-Forge Star History</title>
-  <desc id="desc">Star history through 2026-11-25.</desc>
+  <desc id="desc">Star history through 2026-11-26.</desc>
   <rect x="0.5" y="0.5" width="719" height="359" rx="8" fill="#ffffff" stroke="#d0d7de"/>
   <text x="70" y="38" fill="#24292f" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="26" font-weight="600">FFmpeg-Command-Forge Star History</text>
   <text x="690" y="38" text-anchor="end" fill="#24292f" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22" font-weight="600">2 Stars</text>
@@ -12,9 +12,9 @@
   <text x="58" y="71" text-anchor="end" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">2</text>
   <line x1="70" y1="302" x2="690" y2="302" stroke="#8c959f" stroke-width="1"/>
   <text x="70" y="338" text-anchor="start" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">2026-11-06</text>
-  <text x="265.79" y="338" text-anchor="middle" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">2026-11-12</text>
-  <text x="494.21" y="338" text-anchor="middle" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">2026-11-19</text>
-  <text x="690" y="338" text-anchor="end" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">2026-11-25</text>
-  <path data-series="stars" d="M 70 183 L 102.63 183 L 135.26 183 L 167.89 183 L 200.53 183 L 233.16 183 L 265.79 183 L 298.42 183 L 331.05 183 L 363.68 183 L 396.32 183 L 428.95 183 L 461.58 183 L 494.21 183 L 526.84 183 L 559.47 183 L 592.11 183 L 624.74 183 L 657.37 183 L 690 64" fill="none" stroke="#0969da" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+  <text x="287" y="338" text-anchor="middle" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">2026-11-13</text>
+  <text x="473" y="338" text-anchor="middle" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">2026-11-19</text>
+  <text x="690" y="338" text-anchor="end" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">2026-11-26</text>
+  <path data-series="stars" d="M 70 183 L 101 183 L 132 183 L 163 183 L 194 183 L 225 183 L 256 183 L 287 183 L 318 183 L 349 183 L 380 183 L 411 183 L 442 183 L 473 183 L 504 183 L 535 183 L 566 183 L 597 183 L 628 183 L 659 64 L 690 64" fill="none" stroke="#0969da" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
   <circle data-series="stars" cx="690" cy="64" r="4.5" fill="#0969da" stroke="#ffffff" stroke-width="2" vector-effect="non-scaling-stroke"/>
 </svg>
