@@ -1,13 +1,12 @@
-import { readFile, writeFile, mkdir, copyFile } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const root = path.resolve(process.argv[2] || 'D:/C#project/FFmpegFreeUI');
 const revision = '9cff6bf2d9f8b0162f2e6dc76e539d13a208acf3';
-if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim() !== revision) {
-  throw new Error('上游提交与兼容基线不一致。请使用固定提交。');
-}
+// 直接读取 Git 中的固定版本，避免本地修改和检出换行规则影响生成结果。
+const upstreamFile = relative => execFileSync('git', ['show', `${revision}:${relative}`], { cwd: root, encoding: 'utf8' });
 await mkdir('tools/oracle/generated', { recursive: true });
 await mkdir('src/data', { recursive: true });
 await mkdir('docs', { recursive: true });
@@ -24,7 +23,7 @@ const sources = [
 ];
 const manifest = { repository: 'https://github.com/Lake1059/FFmpegFreeUI', revision, version: '6.2.43', sources: [] };
 for (const [relative, start, end] of sources) {
-  const content = await readFile(path.join(root, relative), 'utf8');
+  const content = upstreamFile(relative);
   manifest.sources.push({ path: relative, sha256: createHash('sha256').update(content).digest('hex'), start, end });
   // Extract complete original method blocks, rather than implementing a second reference engine.
   const imports = 'Imports System.IO\nImports System.Text\nImports System.Text.Json\nImports System.Globalization\nImports System.Text.RegularExpressions\n';
@@ -39,15 +38,15 @@ for (const [relative, start, end] of sources) {
   }
   await writeFile(path.join('tools/oracle/generated', path.basename(relative)), generated.replace(/^Imports LakeUI\r?\n/gm, ''), 'utf8');
 }
-const helpersSource = await readFile(path.join(root, base + '预设面板总览_兼容性_v6.vb'), 'utf8');
+const helpersSource = upstreamFile(base + '预设面板总览_兼容性_v6.vb');
 manifest.sources.push({ path: base + '预设面板总览_兼容性_v6.vb', sha256: createHash('sha256').update(helpersSource).digest('hex') });
 const helpers = [...helpersSource.matchAll(/^    (?:Private|Public) Shared Function (?:已设置|字幕颜色已设置|限制颜色通道|抽帧参数已设置|超分单片有设置)\([\s\S]*?^    End Function/gm)].map(m => m[0]).join('\n');
 await writeFile('tools/oracle/generated/Helpers.vb', 'Partial Public Class 预设管理_v6\n' + helpers + '\nEnd Class\n');
-const moduleSource = await readFile(path.join(root, 'FFmpegFreeUI/功能/Module1.vb'), 'utf8');
+const moduleSource = upstreamFile('FFmpegFreeUI/功能/Module1.vb');
 manifest.sources.push({ path: 'FFmpegFreeUI/功能/Module1.vb', sha256: createHash('sha256').update(moduleSource).digest('hex') });
 const pathHelper = moduleSource.match(/^    Public Function 将路径转换为FFmpeg滤镜接受的格式\([\s\S]*?^    End Function/m)[0];
 await writeFile('tools/oracle/generated/Paths.vb', 'Module OriginalPaths\n' + pathHelper + '\nEnd Module\n');
-await copyFile(path.join(root, 'LICENSE.txt'), 'docs/FFmpegFreeUI-LICENSE.txt');
+await writeFile('docs/FFmpegFreeUI-LICENSE.txt', upstreamFile('LICENSE.txt'), 'utf8');
 await writeFile('docs/upstream.json', JSON.stringify(manifest, null, 2) + '\n');
 execFileSync('dotnet', ['build', 'tools/oracle/Oracle.vbproj', '--nologo', '-v:q'], { stdio: 'inherit' });
 const schema = execFileSync('dotnet', ['tools/oracle/bin/Debug/net10.0/Oracle.dll', '--schema'], { encoding: 'utf8', maxBuffer: 8e6 });

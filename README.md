@@ -88,7 +88,7 @@ npm run build
 
 界面层进一步分为通用控件、字段编辑、工作区状态和持久化；入口连接视图与调度。运行 `node --import tsx tools/benchmark-plan.mjs` 可测量不同名和同名批量任务的执行计划构建耗时，结果不包含转码。运行 `node tools/benchmark-ui.mjs "旧版.html" "FFmpeg Command Forge.html"` 可用本机 Edge 交替测量两个版本的批量界面，每组五次取中位数。`node tools/benchmark-extended-ui.mjs "旧版.html" "FFmpeg Command Forge.html"` 额外覆盖两遍编码、1 MiB 模板展开及 ZIP 下载。
 
-测试工具在 `tools/oracle`：直接编译固定版本的原版纯命令方法，替换的宿主边界仅为程序名、禁用的路径转译及预设克隆。无需编译 LakeUI，也不修改原版仓库。刷新上游资产时运行 `npm run baseline -- <FFmpegFreeUI checkout>`；工具检查固定提交并保存源文件哈希，升级前应先调整基线、检查差异及重新验证。
+`tools/oracle` 直接编译固定版本的原版纯命令方法，并替换程序名、禁用的路径转译及预设克隆等宿主边界。刷新上游资产时运行 `npm run baseline -- <FFmpegFreeUI 仓库路径>`。生成器直接读取 Git 固定提交并记录源文件哈希，无需切换上游分支或编译 LakeUI。更新基线前应先检查上游差异，生成后重新验证。
 
 仓库包含 Windows/Linux/macOS 检查工作流；本地新增工作流不代表已经完成远端运行。
 
