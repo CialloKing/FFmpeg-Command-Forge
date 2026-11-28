@@ -86,6 +86,7 @@
   "-ss / trim · 建议使用 00:00:10 或 10.0": "-ss / trim · Use 00:00:10 or 10.0",
   "-to / trim · 建议使用 00:00:20 或 20.0": "-to / trim · Use 00:00:20 or 20.0",
   "自动命名与冲突处理包含在完整脚本中": "The full script handles automatic naming and collisions",
+  "-movflags +faststart · 预设输出容器设为 .mp4 时生效": "-movflags +faststart · Requires .mp4 as the preset output container",
   "覆盖自动生成的 FFmpeg 参数；按原版 Windows 参数语法解析，不执行 Shell 代码": "Replaces generated FFmpeg arguments. Uses Windows argument syntax and treats the input as arguments.",
   "导入模板内容": "Import template contents",
   "已导入模板：{0}": "Imported template: {0}",

@@ -163,6 +163,7 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   normalizeOrder(a);
   const custom = a.自定义参数_完全自己写.trim();
   const phases = custom || !twoPass(a) ? ['single'] as const : ['pass1', 'pass2'] as const;
+  const mp4FastStart = a.输出_MP4索引前置 && a.输出容器.trim().toLowerCase() === '.mp4';
   const customArguments = ['开头参数', '之前参数', '之后参数', '最后参数', '视频参数', '音频参数'].some(name => a['自定义参数_' + name].trim());
   const managed = !custom && a.输出_输出文件参数使用方法 === 0;
   if (custom || a.输出_输出文件参数使用方法 === 1) { problem('info', t('请检查自定义输出路径，Forge 仅保护由页面生成的本地输出文件。'), presetTarget([custom ? '自定义参数_完全自己写' : '输出_输出文件参数使用方法'])); }
@@ -239,9 +240,10 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
   for (const { task, input, external, sidecars, reads, parsed, candidateStem, naming, base, suffix, fixed, opaqueReads } of entries) {
     const pause = checkpoint(); if (pause) { await pause; }
     const output = incrementalNaming(naming) ? uniqueOutput(base, suffix, naming, managed ? used : new Set(), key, managed ? serialRanges : new Map()) : fixed;
+    const actualExt = extension(output, style).toLowerCase();
     if (c.platform !== 'windows' && /^[A-Za-z]:[\\/]/.test(output)) { problem('missing', t('指定输出文件仍是 Windows 路径，请显式映射到目标系统'), contextTarget(['output'], task.id)); }
     if (!custom) {
-      const actualExt = extension(output, style).toLowerCase(), matroska = ['.mkv', '.mka', '.mks', '.mk3d'].includes(actualExt), cover = matroska || ['.mp4', '.m4v', '.m4a', '.mov', '.3gp', '.3g2'].includes(actualExt);
+      const matroska = ['.mkv', '.mka', '.mks', '.mk3d'].includes(actualExt), cover = matroska || ['.mp4', '.m4v', '.m4a', '.mov', '.3gp', '.3g2'].includes(actualExt);
       for (const [attachmentIndex, item] of a.附件_要写入的附件.entries()) { if (!item.类型) { continue; } if (!item.文件路径.trim()) { problem('missing', t('附件已选择类型，请补充文件路径'), presetTarget(['附件_要写入的附件', rawArrayIndex(['附件_要写入的附件'], attachmentIndex), '文件路径'])); } else if (item.类型 === 2 ? !cover : !matroska) { problem('error', t('输出容器无法保存该附件：{0}', item.文件路径), presetTarget(['输出容器'])); } else if (item.类型 === 2 && a.流控制_启用保留其他视频流 && !videoCodec(a)?.是否禁用) { problem('error', t('附加封面图需要确定输出视频数量；请使用明确的视频流选择并关闭“保留其他视频流”'), presetTarget(['流控制_启用保留其他视频流'])); } }
     }
     const probe = associatedProbe(task, input);
@@ -296,12 +298,15 @@ export async function buildPlan(doc: PresetDocument, context: ExecutionContext, 
         if (phase !== 'single') { passlogArg = args.length - 1; }
         if (phase === 'pass1') { args.push('-an'); }
         args.push(...extra.outputs);
+        const discard = phase === 'pass1' || a.输出_输出文件参数使用方法 === 2;
+        // Forge 允许逐项改写输出后缀，防止给覆盖成其他容器的任务传入 MP4 参数。
+        if (!discard && mp4FastStart && (!managed || actualExt === '.mp4')) { args.push('-movflags', '+faststart'); }
         appendCustom(args, a.自定义参数_之后参数);
-        if (phase === 'pass1' || a.输出_输出文件参数使用方法 === 2) { args.push('-f', 'null', c.platform === 'windows' ? 'NUL' : '/dev/null'); }
+        if (discard) { args.push('-f', 'null', c.platform === 'windows' ? 'NUL' : '/dev/null'); }
         else if (managed) { mediaOutputArg = args.length; args.push(outputMarker); }
         appendCustom(args, a.自定义参数_最后参数);
         graph = g.graph; maps = g.maps;
-        if (phase !== 'pass1' && a.输出_输出文件参数使用方法 !== 2) {
+        if (!discard) {
           streams = summarizeStreams(args, !!graph || customArguments || !managed, 'subtitleInputs' in extra ? extra.subtitleInputs : undefined, assets.length ? undefined : probe);
         }
       }

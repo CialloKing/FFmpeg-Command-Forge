@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/Lake1059/FFmpegFreeUI",
-  "revision": "9cff6bf2d9f8b0162f2e6dc76e539d13a208acf3",
-  "version": "6.2.43",
+  "revision": "93870188938273675005703bbf5302fdcc4c3771",
+  "version": "6.6.0",
   "sources": [
     {
       "path": "FFmpegFreeUI/功能/视频编码器数据库_v6.vb",
@@ -13,7 +13,7 @@
     },
     {
       "path": "FFmpegFreeUI/功能/预设系统/预设数据_v6.vb",
-      "sha256": "354e971cd3f12d90ddec5b87bcd4437c47b2d829a3f40f5e708f8c4407486ac3"
+      "sha256": "189a37a78441cff2e2976a2138125466145eec64efbc4f9d328bbd6ef362c892"
     },
     {
       "path": "FFmpegFreeUI/功能/预设系统/开发者内置预设_v6.vb",
@@ -21,7 +21,7 @@
     },
     {
       "path": "FFmpegFreeUI/功能/预设系统/预设命令行核心_v6.vb",
-      "sha256": "6ab23f87c1c53458d4946e4551003dc8a2195436aea908893102795f0fbdbb48"
+      "sha256": "39a27cab19c35099b0afc9562452b06dbb948df6f999e384c5f0f0abac4869c6"
     },
     {
       "path": "FFmpegFreeUI/功能/预设系统/预设命令行滤镜图_v6.vb",
@@ -56,8 +56,8 @@
     },
     {
       "path": "FFmpegFreeUI/功能/预设系统/预设区段_输出解码编码_v6.vb",
-      "sha256": "42022b4ab4b30bd1f9648d90c30e068c19b78c3aebff69d1356b6841a1b94c1d",
-      "start": 250
+      "sha256": "c84f96603d027b4aaf1a5e29fd992620e642e3a1b0d1cc59769f62ed4bf9327c",
+      "start": 252
     },
     {
       "path": "FFmpegFreeUI/功能/预设系统/预设存储_v6.vb",
@@ -67,7 +67,7 @@
     },
     {
       "path": "FFmpegFreeUI/功能/预设系统/预设面板总览_兼容性_v6.vb",
-      "sha256": "c4d9b343e26e3460c44118a65e097285d9f16a9cd8bc5212d78c7a73089f65fc"
+      "sha256": "bd48d02715248b60767c72b7d2aa17b2e39d61856671e95e8e9fed2739aea888"
     },
     {
       "path": "FFmpegFreeUI/功能/Module1.vb",

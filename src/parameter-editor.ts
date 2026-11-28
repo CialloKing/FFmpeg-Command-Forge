@@ -23,7 +23,13 @@ export function createParameterEditor(options: ParameterEditorOptions) {
   const { readDocument, readLocale, translate: t, edit, openTextDialog, renderEditor, importTemplate } = options;
   const { choiceInput } = createControls(t);
   const currentValue = (path: FieldPath) => path.reduce<any>((value, key) => value?.[key], readDocument().raw);
-  const parameterHints: Record<string, string> = { 视频参数_编码器_具体编码: '-c:v', 视频参数_编码器_编码预设: '-preset', 视频参数_帧速率: '-r', 视频参数_帧速率模式: '-fps_mode', 视频参数_分辨率: 'scale / scale_cuda', 视频参数_分辨率_裁剪滤镜参数: 'crop', 视频参数_比特率_基础: '-b:v', 视频参数_比特率_最低值: '-minrate', 视频参数_比特率_最高值: '-maxrate', 视频参数_比特率_缓冲区: '-bufsize', 视频参数_色彩管理_像素格式: '-pix_fmt', 音频参数_编码器_代号: '-c:a · 使用 3FUI 私有 ID', 音频参数_比特率: '-b:a', 音频参数_采样率: '-ar', 音频参数_位深度: '-sample_fmt', 解码参数_解码器: '-hwaccel', 解码参数_解码数据格式: '-hwaccel_output_format', 剪辑区间_入点: '-ss / trim · 建议使用 00:00:10 或 10.0', 剪辑区间_出点: '-to / trim · 建议使用 00:00:20 或 20.0', 输出_自动命名选项: '自动命名与冲突处理包含在完整脚本中', 自定义参数_完全自己写: '覆盖自动生成的 FFmpeg 参数；按原版 Windows 参数语法解析，不执行 Shell 代码' };
+  const parameterHints: Record<string, string> = {
+    视频参数_编码器_具体编码: '-c:v', 视频参数_编码器_编码预设: '-preset', 视频参数_帧速率: '-r', 视频参数_帧速率模式: '-fps_mode', 视频参数_分辨率: 'scale / scale_cuda', 视频参数_分辨率_裁剪滤镜参数: 'crop', 视频参数_比特率_基础: '-b:v', 视频参数_比特率_最低值: '-minrate', 视频参数_比特率_最高值: '-maxrate', 视频参数_比特率_缓冲区: '-bufsize', 视频参数_色彩管理_像素格式: '-pix_fmt',
+    音频参数_编码器_代号: '-c:a · 使用 3FUI 私有 ID', 音频参数_比特率: '-b:a', 音频参数_采样率: '-ar', 音频参数_位深度: '-sample_fmt', 解码参数_解码器: '-hwaccel', 解码参数_解码数据格式: '-hwaccel_output_format', 剪辑区间_入点: '-ss / trim · 建议使用 00:00:10 或 10.0', 剪辑区间_出点: '-to / trim · 建议使用 00:00:20 或 20.0',
+    输出_自动命名选项: '自动命名与冲突处理包含在完整脚本中',
+    输出_MP4索引前置: '-movflags +faststart · 预设输出容器设为 .mp4 时生效',
+    自定义参数_完全自己写: '覆盖自动生成的 FFmpeg 参数；按原版 Windows 参数语法解析，不执行 Shell 代码'
+  };
   const familyHints: [string, string][] = [
     ['视频参数_编码器_配置文件', '-profile'], ['视频参数_编码器_场景优化', '-tune'], ['视频参数_编码器_图片', '-q:v'], ['视频参数_编码器_gpu', '-gpu'], ['视频参数_编码器_threads', '-threads'], ['解码参数_CPU', '-threads'],
     ['视频参数_分辨率自动', 'scale / scale_cuda · w / h / flags / interp_algo'], ['视频参数_抽帧', 'mpdecimate · max / keep / hi / lo / frac'], ['视频参数_插帧', 'minterpolate · fps / mi_mode / me_mode / me / mc_mode'], ['视频参数_NV_FRUC', 'fruc_vulkan · fps / perf / grid'], ['视频参数_动态模糊', 'tmix · frames / weights / scale / planes'],
@@ -94,7 +100,9 @@ export function createParameterEditor(options: ParameterEditorOptions) {
       wrapper.append(details); return wrapper;
     }
     if (spec.kind === 'boolean') {
-      const input = el('input'); input.type = 'checkbox'; input.checked = !!value; input.onchange = () => edit(path, input.checked); const field = labeled(label, input); field.className = 'field boolean'; field.prepend(input); return field;
+      const input = el('input'); input.type = 'checkbox'; input.checked = !!value; input.onchange = () => edit(path, input.checked);
+      const field = labeled(label, input, path.length === 1 && parameterHints[key] ? hint : '');
+      field.className = 'field boolean'; field.prepend(input); return field;
     }
     let input: HTMLElement;
     if (spec.kind === 'enum') {
@@ -112,7 +120,7 @@ export function createParameterEditor(options: ParameterEditorOptions) {
       if (current && !knownId) { options.unshift([current, t('未知：{0}', current)]); }
       input = choiceInput(options, knownId ?? current, v => edit(path, v));
     } else if (key === '视频参数_编码器_具体编码' || key === '输出容器') {
-      const choices = key === '视频参数_编码器_具体编码' ? Object.keys(data.video) : ['mp4', 'mkv', 'webm', 'mov', 'mp3', 'flac', 'wav', 'opus', 'png'];
+      const choices = key === '视频参数_编码器_具体编码' ? Object.keys(data.video) : ['.mp4', 'mkv', 'webm', 'mov', 'mp3', 'flac', 'wav', 'opus', 'png'];
       input = choiceInput(choices.map(choice => [choice, choice]), String(value ?? ''), v => edit(path, v), true);
     } else if (/自定义参数|自己写滤镜|进阶参数集/.test(key)) {
       const area = el('textarea', 'mono'); area.value = value ?? ''; area.oninput = () => edit(path, area.value); input = area;

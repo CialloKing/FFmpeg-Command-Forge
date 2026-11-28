@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const root = path.resolve(process.argv[2] || 'D:/C#project/FFmpegFreeUI');
-const revision = '9cff6bf2d9f8b0162f2e6dc76e539d13a208acf3';
+const revision = '93870188938273675005703bbf5302fdcc4c3771';
 // 直接读取 Git 中的固定版本，避免本地修改和检出换行规则影响生成结果。
 const upstreamFile = relative => execFileSync('git', ['show', `${revision}:${relative}`], { cwd: root, encoding: 'utf8' });
 await mkdir('tools/oracle/generated', { recursive: true });
@@ -18,10 +18,10 @@ const sources = [
   [base + '预设滤镜排序_v6.vb'], [base + '预设区段_画面效果字幕_v6.vb'],
   [base + '预设区段_剪辑自定义_v6.vb'],
   [base + '预设区段_画面帧_v6.vb', 317], [base + '预设区段_质量色彩音频_v6.vb', 127],
-  [base + '预设区段_高级流控制_v6.vb', 210], [base + '预设区段_输出解码编码_v6.vb', 250],
+  [base + '预设区段_高级流控制_v6.vb', 210], [base + '预设区段_输出解码编码_v6.vb', 252],
   [base + '预设存储_v6.vb', 96, 113]
 ];
-const manifest = { repository: 'https://github.com/Lake1059/FFmpegFreeUI', revision, version: '6.2.43', sources: [] };
+const manifest = { repository: 'https://github.com/Lake1059/FFmpegFreeUI', revision, version: '6.6.0', sources: [] };
 for (const [relative, start, end] of sources) {
   const content = upstreamFile(relative);
   manifest.sources.push({ path: relative, sha256: createHash('sha256').update(content).digest('hex'), start, end });
@@ -50,5 +50,5 @@ await writeFile('docs/FFmpegFreeUI-LICENSE.txt', upstreamFile('LICENSE.txt'), 'u
 await writeFile('docs/upstream.json', JSON.stringify(manifest, null, 2) + '\n');
 execFileSync('dotnet', ['build', 'tools/oracle/Oracle.vbproj', '--nologo', '-v:q'], { stdio: 'inherit' });
 const schema = execFileSync('dotnet', ['tools/oracle/bin/Debug/net10.0/Oracle.dll', '--schema'], { encoding: 'utf8', maxBuffer: 8e6 });
-await writeFile('src/data/upstream.json', schema, 'utf8');
+await writeFile('src/data/upstream.json', schema.replaceAll('\r\n', '\n'), 'utf8');
 console.log('已生成固定上游数据与原版命令参考工具。');

@@ -66,6 +66,8 @@ test('诊断保留原始数组索引，不合并不同输入的同文案错误',
 });
 
 test('原版参数与 TypeScript 执行计划保持一致', async () => {
+  const fastStart = { 预设文件版本: 6, 输出容器: ' .MP4 ', 输出_MP4索引前置: true };
+  const mp4 = 'D:\\输出\\result.mp4';
   const cases: { name: string; preset: any; duration?: string; input?: string; output?: string; expectReady?: boolean }[] = [
     { name: 'default', preset: {} },
     ...data.builtins.map(x => ({ name: x.名称, preset: x.数据 })),
@@ -81,6 +83,12 @@ test('原版参数与 TypeScript 执行计划保持一致', async () => {
     { name: 'keep filtered streams', preset: { 视频参数_编码器_具体编码: 'libx264', 音频参数_编码器_代号: 'aac.native', 视频参数_分辨率: '640x360', 流控制_启用保留其他视频流: true, 流控制_启用保留其他音频流: true, 流控制_将视频参数应用于指定流: ['1'] } },
     { name: 'complex graph', preset: { 视频参数_编码器_具体编码: 'libx264', 自定义参数_视频滤镜: '[0:v]split[x][y];[x][y]hstack[out]', 视频参数_分辨率: '320x240' } },
     { name: 'two pass', preset: { 视频参数_编码器_具体编码: 'libx264', 视频参数_比特率_控制方式: 'TPE', 视频参数_比特率_基础: '400k', 音频参数_编码器_代号: 'aac.native' } },
+    { name: 'MP4 fast start', output: mp4, expectReady: true, preset: { ...fastStart, 自定义参数_之后参数: '-movflags -faststart' } },
+    { name: 'MP4 fast start in second pass', output: mp4, expectReady: true, preset: { ...fastStart, 视频参数_编码器_具体编码: 'libx264', 视频参数_比特率_控制方式: 'TPE', 视频参数_比特率_基础: '400k' } },
+    { name: 'MP4 fast start with discard output', output: mp4, preset: { ...fastStart, 输出_输出文件参数使用方法: '声明丢弃输出' } },
+    { name: 'MP4 fast start with manual output', output: mp4, preset: { ...fastStart, 输出_输出文件参数使用方法: '不附加', 自定义参数_之后参数: '"<OutputFile>"' } },
+    { name: 'MP4 fast start with full custom command', output: mp4, preset: { ...fastStart, 自定义参数_完全自己写: '-i "<InputFile>" "<OutputFile>"' } },
+    { name: 'MP4 fast start requires preset .mp4 suffix', output: mp4, preset: { ...fastStart, 输出容器: 'mp4' } },
     { name: 'precise seek', preset: { 剪辑区间_方法: '精剪空降解码', 剪辑区间_入点: '00:00:10', 剪辑区间_出点: '00:00:12', 剪辑区间_向前解码多久秒: '2.0' } },
     { name: 'trim', preset: { 剪辑区间_方法: 'Trim滤镜', 剪辑区间_入点: '00:00:01', 剪辑区间_出点: '00:00:02', 音频参数_编码器_代号: 'aac.native' } },
     { name: 'TimeSpan compatibility', preset: { 剪辑区间_方法: 'Trim滤镜', 剪辑区间_入点: '1:2:.3', 剪辑区间_出点: '1:2:03.0001234567' } },
@@ -124,6 +132,21 @@ test('原版参数与 TypeScript 执行计划保持一致', async () => {
       assert.equal(stage.graph, r.滤镜图, cases[i].name);
     });
   }
+});
+
+test('旧预设缺少 MP4 索引前置字段时保持默认行为，逐项替换容器后跳过前置', async () => {
+  const legacy = { 预设文件版本: 6, 输出容器: '.mp4' };
+  const context = defaultContext();
+  context.inputs = [{ id: 'mp4', path: 'input.mp4', output: 'result.MP4' }, { id: 'mkv', path: 'input.mkv', output: 'result.mkv' }];
+  const older = importPreset(JSON.stringify(legacy));
+  assert.deepEqual(JSON.parse(exportPreset(older)), legacy);
+  assert.equal(older.normalized.输出_MP4索引前置, false);
+  const current = patchPreset(older, '输出_MP4索引前置', true);
+  const plan = await buildPlan(importPreset(exportPreset(current)), context);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.issues));
+  assert.deepEqual(plan.tasks.map(task => task.stages[0].args.includes('+faststart')), [true, false]);
+  const previous = await buildPlan(older, context);
+  assert.deepEqual(previous.tasks.map(task => task.stages[0].args.includes('-movflags')), [false, false]);
 });
 
 test('TimeSpan 边界与原版 .NET 10 行为一致', () => {

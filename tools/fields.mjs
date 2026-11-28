@@ -6,6 +6,7 @@ const behavior = key => {
   if (/保留.*时间/.test(key)) return '辅助脚本文件时间后处理';
   if (/^(输出位置|输出目录|输出命名|输出_自动)/.test(key)) return '路径上下文、输出命名及冲突处理';
   if (key === '输出容器') return '输出后缀及容器适配';
+  if (key === '输出_MP4索引前置') return 'MP4 成品的 `-movflags +faststart`';
   if (key.startsWith('输出_')) return '输出目标声明';
   if (key.includes('视频帧服务器')) return '模板导入、展开及实际输入准备';
   const group = groupFor(key);
